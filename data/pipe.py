@@ -246,7 +246,7 @@ class Conll2003NERLoader(ConllLoader):
         headers = [
             'raw_words', 'target',
         ]
-        super().__init__(headers=headers, indexes=[0, 1])
+        super().__init__(headers=headers, indexes=[0, 3])
         self.demo = demo
 
     def _load(self, path):

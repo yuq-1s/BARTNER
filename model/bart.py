@@ -221,7 +221,7 @@ class CaGFBartDecoder(FBartDecoder):
         return logits
 
 
-class BartSeq2SeqModel(Seq2SeqModel):
+class OldBartSeq2SeqModel(Seq2SeqModel):
     @classmethod
     def build_model(cls, bart_model, tokenizer, label_ids, decoder_type=None,
                     use_encoder_mlp=False):
@@ -317,3 +317,22 @@ class BartState(State):
                     new_layer[key1] = new_layer_
                 new.append(new_layer)
             self.past_key_values = new
+
+
+class BartSeq2SeqModel(OldBartSeq2SeqModel):
+    def __init__(self, encoder, decoder):
+        super().__init__(encoder, decoder)
+        self.special_token = BartTokenizer.from_pretrained('facebook/bart-large').get_vocab()['ÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤ']
+
+    def forward(self, src_tokens, tgt_tokens, src_seq_len, tgt_seq_len, first):
+        # self._tokenizer
+        with torch.no_grad():
+            assert self.special_token not in src_tokens
+            B = src_tokens.size(0)
+            zeros = torch.zeros(B, 1, device='cuda', dtype=int)
+            special_token = torch.ones(B, 1, device='cuda', dtype=int) * self.special_token
+            src_tokens = torch.cat((zeros, special_token, src_tokens[:, 1:]), dim=1)
+            src_seq_len += 1
+            first += 1
+            first[:, 0] -= 1
+        return super().forward(src_tokens, tgt_tokens, src_seq_len, tgt_seq_len, first)

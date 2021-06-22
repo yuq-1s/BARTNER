@@ -20,7 +20,7 @@ from fastNLP import BucketSampler, GradientClipCallback, cache_results
 from model.callbacks import WarmupCallback
 from fastNLP.core.sampler import SortedSampler
 from model.generater import SequenceGeneratorModel
-from fastNLP.core.sampler import  ConstTokenNumSampler
+from fastNLP.core.sampler import ConstantTokenNumSampler as ConstTokenNumSampler
 from model.callbacks import FitlogCallback
 
 fitlog.debug()
@@ -116,16 +116,18 @@ else:
 @cache_results(cache_fn, _refresh=False)
 def get_data():
     pipe = BartNERPipe(tokenizer=bart_name, dataset_name=dataset_name, target_type=target_type)
+    data_dir = 'data'
     if dataset_name == 'conll2003':
-        paths = {'test': "../data/conll2003/test.txt",
-                 'train': "../data/conll2003/train.txt",
-                 'dev': "../data/conll2003/dev.txt"}
+        # paths = {'test': f"{data_dir}/conll2003/test.txt",
+        #          'train': f"{data_dir}/conll2003/train.txt",
+        #          'dev': f"{data_dir}/conll2003/dev.txt"}
+        paths = f"{data_dir}/conll2003"
         data_bundle = pipe.process_from_file(paths, demo=demo)
     elif dataset_name == 'en-ontonotes':
-        paths = '../data/en-ontonotes/english'
+        paths = f'{data_dir}/en-ontonotes/english'
         data_bundle = pipe.process_from_file(paths)
     else:
-        data_bundle = pipe.process_from_file(f'../data/{dataset_name}', demo=demo)
+        data_bundle = pipe.process_from_file(f'{data_dir}/{dataset_name}', demo=demo)
     return data_bundle, pipe.tokenizer, pipe.mapping2id
 
 data_bundle, tokenizer, mapping2id = get_data()
@@ -174,6 +176,7 @@ for name, param in model.named_parameters():
         params['params'].append(param)
 parameters.append(params)
 
+parameters = [{'lr': lr, 'weight_decay': 1e-2, 'params': [model.get_parameter('seq2seq_model.encoder.bart_encoder.embed_tokens.weight')]}]
 optimizer = optim.AdamW(parameters)
 
 callbacks = []
@@ -218,7 +221,8 @@ metric = Seq2SeqSpanMetric(eos_token_id, num_labels=len(label_ids), target_type=
 
 ds = data_bundle.get_dataset('train')
 if dataset_name == 'conll2003':
-    ds.concat(data_bundle.get_dataset('dev'))
+    # FIXME: ds has no method `concat`
+    # ds.concat(data_bundle.get_dataset('dev'))
     data_bundle.delete_dataset('dev')
 if save_model == 1:
     save_path = 'save_models/'
