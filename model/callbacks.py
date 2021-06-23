@@ -103,8 +103,8 @@ class FitlogCallback(Callback):
             fitlog.add_best_metric(eval_result)
         fitlog.add_metric(eval_result, step=self.step, epoch=self.epoch)
         indicator, indicator_val = _check_eval_results(eval_result, metric_key=metric_key)
-        if indicator_val < self.raise_threshold:
-            raise RuntimeError("The program has been running off.")
+        # if indicator_val < self.raise_threshold:
+            # raise RuntimeError("The program has been running off.")
 
         if len(self.testers) > 0:
             do_eval = True
