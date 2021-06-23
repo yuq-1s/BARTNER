@@ -1,5 +1,5 @@
 import torch
-from .modeing_bart import BartEncoder, BartDecoder, BartModel
+from .modeling_bart import BartEncoder, BartDecoder, BartModel
 from transformers import BartTokenizer
 from fastNLP import seq_len_to_mask
 from fastNLP.modules import Seq2SeqEncoder, Seq2SeqDecoder, State
@@ -8,6 +8,24 @@ from fastNLP.models import Seq2SeqModel
 from torch import nn
 import math
 
+class PromptFBartEncoder(Seq2SeqEncoder):
+    def __init__(self, encoder):
+        super().__init__()
+        assert isinstance(encoder, BartEncoder)
+        self.bart_encoder = encoder
+        original_embed = encoder.embed_tokens.weight
+        self.soft_prompt_embed = nn.Embedding(1, original_embed.size(1), device=original_embed.device)
+        self.soft_prompt_embed.weight.data = encoder.embed_tokens.weight[50195].clone().detach()
+
+    def forward(self, src_tokens, src_seq_len):
+        mask = seq_len_to_mask(src_seq_len, max_len=src_tokens.size(1))
+        embeddings = self.bart_encoder.embed_tokens(src_tokens)
+        embeddings[:, 1] = self.soft_prompt_embed.weight.repeat((src_tokens.size(0), 1))
+        dict = self.bart_encoder(inputs_embeds=embeddings, attention_mask=mask, return_dict=True,
+                                 output_hidden_states=True)
+        encoder_outputs = dict.last_hidden_state
+        hidden_states = dict.hidden_states
+        return encoder_outputs, mask, hidden_states
 
 class FBartEncoder(Seq2SeqEncoder):
     def __init__(self, encoder):
@@ -22,7 +40,6 @@ class FBartEncoder(Seq2SeqEncoder):
         encoder_outputs = dict.last_hidden_state
         hidden_states = dict.hidden_states
         return encoder_outputs, mask, hidden_states
-
 
 class FBartDecoder(Seq2SeqDecoder):
     def __init__(self, decoder, pad_token_id, label_ids, use_encoder_mlp=True):
@@ -88,7 +105,7 @@ class FBartDecoder(Seq2SeqDecoder):
                                 decoder_padding_mask=None,
                                 decoder_causal_mask=None,
                                 past_key_values=past_key_values,
-                                use_cache=True,
+                                # use_cache=True,
                                 return_dict=True)
         hidden_state = dict.last_hidden_state  # bsz x max_len x hidden_size
         if not self.training:
@@ -176,7 +193,7 @@ class CaGFBartDecoder(FBartDecoder):
                                 decoder_padding_mask=None,
                                 decoder_causal_mask=None,
                                 past_key_values=past_key_values,
-                                use_cache=True,
+                                # use_cache=True,
                                 return_dict=True)
         hidden_state = dict.last_hidden_state  # bsz x max_len x hidden_size
         hidden_state = self.dropout_layer(hidden_state)
@@ -224,7 +241,7 @@ class CaGFBartDecoder(FBartDecoder):
 class OldBartSeq2SeqModel(Seq2SeqModel):
     @classmethod
     def build_model(cls, bart_model, tokenizer, label_ids, decoder_type=None,
-                    use_encoder_mlp=False):
+                    use_encoder_mlp=False, use_prompt=False):
         model = BartModel.from_pretrained(bart_model)
         num_tokens, _ = model.encoder.embed_tokens.weight.shape
         model.resize_token_embeddings(len(tokenizer.unique_no_split_tokens)+num_tokens)
@@ -247,7 +264,10 @@ class OldBartSeq2SeqModel(Seq2SeqModel):
                 embed /= len(indexes)
                 model.decoder.embed_tokens.weight.data[index] = embed
 
-        encoder = FBartEncoder(encoder)
+        if use_prompt:
+            encoder = PromptFBartEncoder(encoder)
+        else:
+            encoder = FBartEncoder(encoder)
         if decoder_type is None:
             decoder = FBartDecoder(decoder, pad_token_id=tokenizer.pad_token_id, label_ids=label_ids)
         elif decoder_type == 'avg_score':

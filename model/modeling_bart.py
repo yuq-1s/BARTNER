@@ -314,7 +314,7 @@ class BartEncoder(nn.Module):
         self.layer_norm = LayerNorm(config.d_model) if config.add_final_layer_norm else None
 
     def forward(
-            self, input_ids, attention_mask=None, output_attentions=False, output_hidden_states=False, return_dict=False
+            self, input_ids=None, inputs_embeds=None, attention_mask=None, output_attentions=False, output_hidden_states=False, return_dict=False
     ):
         """
         Args:
@@ -335,8 +335,21 @@ class BartEncoder(nn.Module):
         if attention_mask is not None:
             attention_mask = invert_mask(attention_mask)
 
-        inputs_embeds = self.embed_tokens(input_ids) * self.embed_scale
-        embed_pos = self.embed_positions(input_ids)
+        # retrieve input_ids and inputs_embeds
+        if input_ids is not None and inputs_embeds is not None:
+            raise ValueError("You cannot specify both input_ids and inputs_embeds at the same time")
+        elif input_ids is not None:
+            input_shape = input_ids.size()
+            input_ids = input_ids.view(-1, input_shape[-1])
+        elif inputs_embeds is not None:
+            input_shape = inputs_embeds.size()[:-1]
+        else:
+            raise ValueError("You have to specify either input_ids or inputs_embeds")
+
+        if inputs_embeds is None:
+            inputs_embeds = self.embed_tokens(input_ids) * self.embed_scale
+
+        embed_pos = self.embed_positions(input_shape)
         x = inputs_embeds + embed_pos
         x = self.layernorm_embedding(x)
         x = F.dropout(x, p=self.dropout, training=self.training)
@@ -552,8 +565,10 @@ class BartDecoder(nn.Module):
         if encoder_padding_mask is not None:
             encoder_padding_mask = invert_mask(encoder_padding_mask)
 
+        assert not use_cache
         # embed positions
-        positions = self.embed_positions(input_ids, use_cache=use_cache)
+        input_shape = input_ids.size()
+        positions = self.embed_positions(input_shape)
 
         if use_cache:
             input_ids = input_ids[:, -1:]
@@ -820,14 +835,11 @@ class LearnedPositionalEmbedding(nn.Embedding):
         num_embeddings += offset
         super().__init__(num_embeddings, embedding_dim, padding_idx=padding_idx)
 
-    def forward(self, input_ids, use_cache=False):
+    def forward(self, input_ids_shape):
         """Input is expected to be of size [bsz x seqlen]."""
-        bsz, seq_len = input_ids.shape[:2]
-        if use_cache:
-            positions = input_ids.data.new(1, 1).fill_(seq_len - 1)  # called before slicing
-        else:
-            # starts at 0, ends at 1-seq_len
-            positions = torch.arange(seq_len, dtype=torch.long, device=self.weight.device)
+        bsz, seq_len = input_ids_shape[:2]
+        # starts at 0, ends at 1-seq_len
+        positions = torch.arange(seq_len, dtype=torch.long, device=self.weight.device)
         return super().forward(positions + self.offset)
 
 

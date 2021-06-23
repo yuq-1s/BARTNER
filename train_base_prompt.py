@@ -37,13 +37,13 @@ args.save_model = 1
 
 # word: 生成word的start; bpe: 生成所有的bpe; span: 每一段按照start end生成; span_bpe: 每一段都是start的所有bpe，end的所有bpe
 args.target_type = 'word'
-# args.bart_name = 'facebook/bart-base'
-args.bart_name = 'facebook/bart-large'
+args.bart_name = 'facebook/bart-base'
+# args.bart_name = 'facebook/bart-large'
 args.schedule = 'linear'
 args.decoder_type = 'avg_feature'
 args.n_epochs = 3000
 args.num_beams = 1
-args.batch_size = 48
+args.batch_size = 112
 args.use_encoder_mlp = 1
 args.lr = 1.5e-5
 args.warmup_ratio = 0.01
@@ -142,7 +142,7 @@ bos_token_id = 0
 eos_token_id = 1
 label_ids = list(mapping2id.values())
 model = BartSeq2SeqModel.build_model(bart_name, tokenizer, label_ids=label_ids, decoder_type=decoder_type,
-                                     use_encoder_mlp=use_encoder_mlp)
+                                     use_encoder_mlp=use_encoder_mlp, use_prompt=True)
 
 vocab_size = len(tokenizer)
 print(vocab_size, model.decoder.decoder.embed_tokens.weight.data.size(0))
@@ -177,7 +177,7 @@ for name, param in model.named_parameters():
         params['params'].append(param)
 parameters.append(params)
 
-parameters = [{'lr': lr, 'weight_decay': 1e-2, 'params': [model.get_parameter('seq2seq_model.encoder.bart_encoder.embed_tokens.weight')]}]
+parameters = [{'lr': lr, 'weight_decay': 1e-2, 'params': [model.get_parameter('seq2seq_model.encoder.soft_prompt_embed.weight')]}]
 optimizer = optim.AdamW(parameters)
 
 callbacks = []
@@ -226,7 +226,7 @@ if dataset_name == 'conll2003':
     # ds.concat(data_bundle.get_dataset('dev'))
     data_bundle.delete_dataset('dev')
 if save_model == 1:
-    save_path = 'save_models_large/'
+    save_path = 'save_models_base_prompt/'
 else:
     save_path = None
 validate_every = 100000
