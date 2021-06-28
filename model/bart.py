@@ -122,6 +122,7 @@ class FBartDecoder(Seq2SeqDecoder):
         src_outputs = state.encoder_output
 
         if hasattr(self, 'encoder_mlp'):
+            assert False
             src_outputs = self.encoder_mlp(src_outputs)
 
         if first is not None:
@@ -211,6 +212,7 @@ class CaGFBartDecoder(FBartDecoder):
         # bsz x max_bpe_len x hidden_size
         src_outputs = state.encoder_output
         if hasattr(self, 'encoder_mlp'):
+            assert False
             src_outputs = self.encoder_mlp(src_outputs)
 
         if first is not None:
@@ -353,6 +355,6 @@ class BartSeq2SeqModel(OldBartSeq2SeqModel):
             special_token = torch.ones(B, 1, device='cuda', dtype=int) * self.special_token
             src_tokens = torch.cat((zeros, special_token, src_tokens[:, 1:]), dim=1)
             src_seq_len += 1
-            first += 1
-            first[:, 0] -= 1
+            first += (first > 0)
+            # FIXME: first at padding
         return super().forward(src_tokens, tgt_tokens, src_seq_len, tgt_seq_len, first)

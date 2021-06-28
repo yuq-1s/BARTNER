@@ -1,6 +1,4 @@
 import sys
-
-from fastNLP.core import callback
 sys.path.append('../')
 import os
 if 'p' in os.environ:
@@ -10,7 +8,7 @@ if 'p' in os.environ:
 import warnings
 warnings.filterwarnings('ignore')
 from data.pipe import BartNERPipe
-from model.bart import BartSeq2SeqModel
+from model.t5 import T5Seq2SeqModel
 import fitlog
 
 from fastNLP import Trainer
@@ -40,12 +38,12 @@ args.save_model = 1
 # word: 生成word的start; bpe: 生成所有的bpe; span: 每一段按照start end生成; span_bpe: 每一段都是start的所有bpe，end的所有bpe
 args.target_type = 'word'
 # args.bart_name = 'facebook/bart-base'
-args.bart_name = 'facebook/bart-large'
+args.bart_name = 't5-base'
 args.schedule = 'linear'
-args.decoder_type = 'avg_feature'
-args.n_epochs = 3000
+args.decoder_type = None # 'avg_feature'
+args.n_epochs = 30000
 args.num_beams = 1
-args.batch_size = 72
+args.batch_size = 4
 args.use_encoder_mlp = 1
 args.lr = 1.5e-5
 args.warmup_ratio = 0.01
@@ -138,14 +136,14 @@ data_bundle, tokenizer, mapping2id = get_data()
 print(f'max_len_a:{max_len_a}, max_len:{max_len}')
 
 print(data_bundle)
-print("The number of tokens in tokenizer ", len(tokenizer.decoder))
+print("The number of tokens in tokenizer ", len(tokenizer.get_vocab()))
 
 bos_token_id = 0
 eos_token_id = 1
 label_ids = list(mapping2id.values())
 use_encoder_mlp = False
-model = BartSeq2SeqModel.build_model(bart_name, tokenizer, label_ids=label_ids, decoder_type=decoder_type,
-                                     use_encoder_mlp=use_encoder_mlp, use_prompt=True)
+model = T5Seq2SeqModel.build_model(bart_name, tokenizer, label_ids=label_ids, decoder_type=decoder_type,
+                                     use_encoder_mlp=use_encoder_mlp)
 
 vocab_size = len(tokenizer)
 print(vocab_size, model.decoder.decoder.embed_tokens.weight.data.size(0))
@@ -163,33 +161,35 @@ else:
 
 parameters = []
 params = {'lr':lr, 'weight_decay':1e-2}
-params['params'] = [param for name, param in model.named_parameters() if not ('bart_encoder' in name or 'bart_decoder' in name)]
-parameters.append(params)
+params['params'] = [param for name, param in model.named_parameters() if not ('t5_encoder' in name or 'decoder' in name)]
+if params['params']:
+    parameters.append(params)
 
 params = {'lr':lr, 'weight_decay':1e-2}
 params['params'] = []
 for name, param in model.named_parameters():
-    if ('bart_encoder' in name or 'bart_decoder' in name) and not ('layernorm' in name or 'layer_norm' in name):
+    if ('t5_encoder' in name or 'decoder' in name) and not ('layernorm' in name or 'layer_norm' in name):
         params['params'].append(param)
-parameters.append(params)
+if params['params']:
+    parameters.append(params)
 
 params = {'lr':lr, 'weight_decay':0}
 params['params'] = []
 for name, param in model.named_parameters():
-    if ('bart_encoder' in name or 'bart_decoder' in name) and ('layernorm' in name or 'layer_norm' in name):
+    if ('t5_encoder' in name or 'decoder' in name) and ('layernorm' in name or 'layer_norm' in name):
         params['params'].append(param)
-parameters.append(params)
+if params['params']:
+    parameters.append(params)
 
-parameters = [{'lr': lr, 'weight_decay': 1e-2, 'params': [model.get_parameter('seq2seq_model.encoder.soft_prompt_embed.weight')]}]
-for name, param in model.named_parameters():
-    if name != 'seq2seq_model.encoder.soft_prompt_embed.weight':
-        param.requires_grad = False
+# parameters = [{'lr': lr, 'weight_decay': 1e-2, 'params': [model.get_parameter('seq2seq_model.encoder.bart_encoder.embed_tokens.weight')]}]
+# for name, param in model.named_parameters():
+    # if name != 'seq2seq_model.encoder.bart_encoder.embed_tokens.weight':
+    #     param.requires_grad = False
 optimizer = optim.AdamW(parameters)
 
 callbacks = []
 callbacks.append(GradientClipCallback(clip_value=5, clip_type='value'))
 callbacks.append(WarmupCallback(warmup=args.warmup_ratio, schedule=schedule))
-# callbacks.append(MyDebugCallback())
 
 if dataset_name not in ('conll2003', 'genia'):
     callbacks.append(FitlogCallback(data_bundle.get_dataset('test'), raise_threshold=-1, # 0.04,
@@ -233,7 +233,7 @@ if dataset_name == 'conll2003':
     # ds.concat(data_bundle.get_dataset('dev'))
     data_bundle.delete_dataset('dev')
 if save_model == 1:
-    save_path = 'ckpt/large_prompt_first_fixed_no_encoder_mlp/'
+    save_path = 't5_base_decoder_type_none_no_encoder_mlp/'
 else:
     save_path = None
 validate_every = 100000

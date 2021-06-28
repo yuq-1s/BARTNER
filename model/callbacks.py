@@ -216,3 +216,7 @@ class OutputIndiceCallback(Callback):
 
     def on_exception(self, exception):
         print(self.indices)
+
+# class MyDebugCallback(Callback):
+#     def on_backward_end(self):
+#         import pdb; pdb.set_trace()

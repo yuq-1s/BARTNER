@@ -43,7 +43,7 @@ args.schedule = 'linear'
 args.decoder_type = 'avg_feature'
 args.n_epochs = 3000
 args.num_beams = 1
-args.batch_size = 112
+args.batch_size = 168
 args.use_encoder_mlp = 1
 args.lr = 1.5e-5
 args.warmup_ratio = 0.01
@@ -141,6 +141,7 @@ print("The number of tokens in tokenizer ", len(tokenizer.decoder))
 bos_token_id = 0
 eos_token_id = 1
 label_ids = list(mapping2id.values())
+use_encoder_mlp = False
 model = BartSeq2SeqModel.build_model(bart_name, tokenizer, label_ids=label_ids, decoder_type=decoder_type,
                                      use_encoder_mlp=use_encoder_mlp, use_prompt=True)
 
@@ -226,7 +227,7 @@ if dataset_name == 'conll2003':
     # ds.concat(data_bundle.get_dataset('dev'))
     data_bundle.delete_dataset('dev')
 if save_model == 1:
-    save_path = 'save_models_base_prompt/'
+    save_path = 'ckpt/base_prompt_first_fixed_no_encoder_mlp/'
 else:
     save_path = None
 validate_every = 100000

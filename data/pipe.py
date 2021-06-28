@@ -28,9 +28,14 @@ class BartNERPipe(Pipe):
             span_bpe: 每一段都是start的所有bpe，end的所有bpe
         """
         super().__init__()
-        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer)
+        if 't5' in tokenizer:
+            from transformers import T5Tokenizer
+            self.tokenizer = T5Tokenizer.from_pretrained(tokenizer)
+        else:
+            self.tokenizer = AutoTokenizer.from_pretrained(tokenizer)
 
         assert target_type in ('word', 'bpe', 'span')
+        assert self.tokenizer.eos_token_id is not None, "Unsupported model {type(self.tokenizer)}. Only support BART and T5 now."
 
         if dataset_name == 'conll2003':
             self.mapping = {
@@ -106,11 +111,11 @@ class BartNERPipe(Pipe):
 
         def prepare_target(ins):
             raw_words = ins['raw_words']
-            word_bpes = [[self.tokenizer.bos_token_id]]
+            word_bpes = [[self.tokenizer.bos_token_id]] if self.tokenizer.bos_token_id is not None else [[]]
             first = []  # 用来取每个word第一个bpe
-            cur_bpe_len = 1
+            cur_bpe_len = len(word_bpes[0])
             for word in raw_words:
-                bpes = self.tokenizer.tokenize(word, add_prefix_space=True)
+                bpes = self.tokenizer.tokenize(word)
                 bpes = self.tokenizer.convert_tokens_to_ids(bpes)
                 first.append(cur_bpe_len)
                 cur_bpe_len += len(bpes)
@@ -125,7 +130,7 @@ class BartNERPipe(Pipe):
             entity_spans = ins['entity_spans']  # [(s1, e1, s2, e2), ()]
             entity_tags = ins['entity_tags']  # [tag1, tag2...]
             entities = ins['entities']  # [[ent1, ent2,], [ent1, ent2]]
-            target = [0]  # 特殊的sos
+            target = [self.tokenizer.bos_token_id] if self.tokenizer.bos_token_id is not None else []  # 特殊的sos
             pairs = []
 
             first = list(range(cum_lens[-1]))
@@ -159,17 +164,17 @@ class BartNERPipe(Pipe):
                     if 'word' == self.target_type or word_idx != -1:
                         assert _word_bpes[j] == \
                                self.tokenizer.convert_tokens_to_ids(
-                                   self.tokenizer.tokenize(entities[idx][word_idx], add_prefix_space=True)[:1])[0]
+                                   self.tokenizer.tokenize(entities[idx][word_idx])[:1])[0]
                     else:
                         assert _word_bpes[j] == \
                                self.tokenizer.convert_tokens_to_ids(
-                                   self.tokenizer.tokenize(entities[idx][word_idx], add_prefix_space=True)[-1:])[0]
+                                   self.tokenizer.tokenize(entities[idx][word_idx])[-1:])[0]
                 assert all([cur_pair[i] < cum_lens[-1] + target_shift for i in range(len(cur_pair))])
 
                 cur_pair.append(self.mapping2targetid[tag] + 2)  # 加2是由于有shift
                 pairs.append([p for p in cur_pair])
             target.extend(list(chain(*pairs)))
-            target.append(1)  # 特殊的eos
+            target.append(self.tokenizer.eos_token_id)  # 特殊的eos
 
             word_bpes = list(chain(*word_bpes))
             assert len(word_bpes)<500
@@ -181,7 +186,7 @@ class BartNERPipe(Pipe):
         data_bundle.apply_more(prepare_target, use_tqdm=True, tqdm_desc='pre. tgt.')
 
         data_bundle.set_ignore_type('target_span', 'entities')
-        data_bundle.set_pad_val('tgt_tokens', 1)  # 设置为eos所在的id
+        data_bundle.set_pad_val('tgt_tokens', self.tokenizer.pad_token_id)  # 设置为eos所在的id
         data_bundle.set_pad_val('src_tokens', self.tokenizer.pad_token_id)
 
         data_bundle.apply_field(lambda x: len(x), field_name='src_tokens', new_field_name='src_seq_len')
