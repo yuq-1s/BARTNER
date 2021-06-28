@@ -62,6 +62,8 @@ class BartNERPipe(Pipe):
         cur_num_tokens = self.tokenizer.vocab_size
         self.num_token_in_orig_tokenizer = cur_num_tokens
         self.target_type = target_type
+        self.has_bos = int(self.tokenizer.bos_token_id is not None)
+        self._special_eos = (1 if self.has_bos else 0)
 
     def add_tags_to_special_tokens(self, data_bundle):
         if not hasattr(self, 'mapping'):
@@ -107,11 +109,11 @@ class BartNERPipe(Pipe):
         self.add_tags_to_special_tokens(data_bundle)
 
         # 转换tag
-        target_shift = len(self.mapping) + 2  # 是由于第一位是sos，紧接着是eos, 然后是
+        target_shift = len(self.mapping) + 1 + self.has_bos  # 是由于第一位是sos，紧接着是eos, 然后是
 
         def prepare_target(ins):
             raw_words = ins['raw_words']
-            word_bpes = [[self.tokenizer.bos_token_id]] if self.tokenizer.bos_token_id is not None else [[]]
+            word_bpes = [[self.tokenizer.bos_token_id]] if self.has_bos else [[]]
             first = []  # 用来取每个word第一个bpe
             cur_bpe_len = len(word_bpes[0])
             for word in raw_words:
@@ -130,7 +132,7 @@ class BartNERPipe(Pipe):
             entity_spans = ins['entity_spans']  # [(s1, e1, s2, e2), ()]
             entity_tags = ins['entity_tags']  # [tag1, tag2...]
             entities = ins['entities']  # [[ent1, ent2,], [ent1, ent2]]
-            target = [self.tokenizer.bos_token_id] if self.tokenizer.bos_token_id is not None else []  # 特殊的sos
+            target = [self.tokenizer.bos_token_id] if self.has_bos else []  # 特殊的sos
             pairs = []
 
             first = list(range(cum_lens[-1]))
@@ -171,10 +173,15 @@ class BartNERPipe(Pipe):
                                    self.tokenizer.tokenize(entities[idx][word_idx])[-1:])[0]
                 assert all([cur_pair[i] < cum_lens[-1] + target_shift for i in range(len(cur_pair))])
 
-                cur_pair.append(self.mapping2targetid[tag] + 2)  # 加2是由于有shift
-                pairs.append([p for p in cur_pair])
+                cur_pair.append(self.mapping2targetid[tag] + 1 + self.has_bos)  # 加2是由于有shift
+                pairs.append(cur_pair)
             target.extend(list(chain(*pairs)))
-            target.append(self.tokenizer.eos_token_id)  # 特殊的eos
+            # BART的话0～5对应 bos eos loc per org misc
+            #   target_shift = 6
+            #   6～len(src_token)是pointer，对应(位置+target_shift)。
+            #   例如 10 的话，对应(4+6)，是第4个token对应的单词
+            # T5的话0～4对应 eos loc per org misc
+            target.append(self._special_eos)  # 特殊的eos
 
             word_bpes = list(chain(*word_bpes))
             assert len(word_bpes)<500

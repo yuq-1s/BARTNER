@@ -37,6 +37,8 @@ class FT5Decoder(Seq2SeqDecoder):
         self.register_buffer('mapping', mapping)
         self.src_start_index = len(mapping)  # 加上一个
 
+        logging.warning("FIXME: This version of T5Decoder forces `first` to be None.")
+
     def forward(self, tokens, state):
         encoder_outputs = state.encoder_output
         encoder_pad_mask = state.encoder_mask
@@ -55,6 +57,7 @@ class FT5Decoder(Seq2SeqDecoder):
         src_tokens_index = tokens - self.src_start_index # bsz x num_src_token
         src_tokens_index = src_tokens_index.masked_fill(src_tokens_index.lt(0), 0)
         src_tokens = state.src_tokens
+        first = None
         if first is not None:
             src_tokens = src_tokens.gather(index=first, dim=1)
         word_mapped_tokens = src_tokens.gather(index=src_tokens_index, dim=1)
@@ -63,8 +66,7 @@ class FT5Decoder(Seq2SeqDecoder):
         tokens = tokens.masked_fill(tgt_pad_mask, self.pad_token_id)
 
         if self.training:
-            tokens = tokens[:, :-1]
-            decoder_pad_mask = tokens.eq(self.pad_token_id)  # decoder需要让pad位置为1
+            tokens = self._shift_right(tokens)
             dict = self.decoder(input_ids=tokens,
                                 encoder_hidden_states=encoder_outputs,
                                 return_dict=True)
@@ -95,7 +97,7 @@ class FT5Decoder(Seq2SeqDecoder):
         else:
             mask = state.encoder_mask.eq(0)
 
-        mask = mask.unsqueeze(1).__or__(src_tokens.eq(EOS_ID).cumsum(dim=1).ge(PAD_ID).unsqueeze(1))
+        mask = mask.unsqueeze(1).__or__(src_tokens.eq(EOS_ID).cumsum(dim=1).bool().unsqueeze(1))
         word_scores = torch.einsum('blh,bnh->bln', hidden_state, src_outputs)  # bsz x max_len x max_word_len
         word_scores = word_scores.masked_fill(mask, -1e32)
 
@@ -107,6 +109,17 @@ class FT5Decoder(Seq2SeqDecoder):
 
     def decode(self, tokens, state):
         return self(tokens, state)[:, -1]
+
+    def _shift_right(self, input_ids):
+        assert self.pad_token_id is not None
+        decoder_start_token_id = self.pad_token_id
+        shifted_input_ids = input_ids.new_zeros(input_ids.shape)
+        shifted_input_ids[..., 1:] = input_ids[..., :-1].clone()
+        shifted_input_ids[..., 0] = decoder_start_token_id
+        shifted_input_ids.masked_fill_(shifted_input_ids == -100, self.pad_token_id)
+        assert torch.all(shifted_input_ids >= 0).item(), "Verify that `shifted_input_ids` has only positive values"
+        return shifted_input_ids
+
 
 class OldT5Seq2SeqModel(Seq2SeqModel):
     @classmethod

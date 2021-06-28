@@ -13,7 +13,7 @@ import fitlog
 
 from fastNLP import Trainer
 from model.metrics import Seq2SeqSpanMetric
-from model.losses import Seq2SeqLoss
+from model.losses import Seq2SeqLoss, T5Seq2SeqLoss
 from torch import optim
 from fastNLP import BucketSampler, GradientClipCallback, cache_results
 
@@ -238,7 +238,7 @@ else:
     save_path = None
 validate_every = 100000
 trainer = Trainer(train_data=ds, model=model, optimizer=optimizer,
-                  loss=Seq2SeqLoss(),
+                  loss=T5Seq2SeqLoss(),
                   batch_size=batch_size, sampler=sampler, drop_last=False, update_every=1,
                   num_workers=4, n_epochs=n_epochs, print_every=1 if 'SEARCH_OUTPUT_FP' not in os.environ else 100,
                   dev_data=eval_dataset, metrics=metric, metric_key='f',
