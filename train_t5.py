@@ -21,7 +21,7 @@ from model.callbacks import WarmupCallback
 from fastNLP.core.sampler import SortedSampler
 from model.generater import SequenceGeneratorModel
 from fastNLP.core.sampler import ConstantTokenNumSampler as ConstTokenNumSampler
-from model.callbacks import FitlogCallback
+from model.callbacks import FitlogCallback, SaveEveryEpochCallback
 
 fitlog.debug()
 fitlog.set_log_dir('logs')
@@ -43,9 +43,9 @@ args.schedule = 'linear'
 args.decoder_type = None # 'avg_feature'
 args.n_epochs = 30000
 args.num_beams = 1
-args.batch_size = 4
+args.batch_size = 12
 args.use_encoder_mlp = 1
-args.lr = 1.5e-5
+args.lr = 1.5e-4
 args.warmup_ratio = 0.01
 eval_start_epoch = 1
 
@@ -138,8 +138,8 @@ print(f'max_len_a:{max_len_a}, max_len:{max_len}')
 print(data_bundle)
 print("The number of tokens in tokenizer ", len(tokenizer.get_vocab()))
 
-bos_token_id = 0
-eos_token_id = 1
+bos_token_id = tokenizer.pad_token_id
+eos_token_id = tokenizer.eos_token_id
 label_ids = list(mapping2id.values())
 use_encoder_mlp = False
 model = T5Seq2SeqModel.build_model(bart_name, tokenizer, label_ids=label_ids, decoder_type=decoder_type,
@@ -190,6 +190,7 @@ optimizer = optim.AdamW(parameters)
 callbacks = []
 callbacks.append(GradientClipCallback(clip_value=5, clip_type='value'))
 callbacks.append(WarmupCallback(warmup=args.warmup_ratio, schedule=schedule))
+callbacks.append(SaveEveryEpochCallback())
 
 if dataset_name not in ('conll2003', 'genia'):
     callbacks.append(FitlogCallback(data_bundle.get_dataset('test'), raise_threshold=-1, # 0.04,
@@ -233,7 +234,7 @@ if dataset_name == 'conll2003':
     # ds.concat(data_bundle.get_dataset('dev'))
     data_bundle.delete_dataset('dev')
 if save_model == 1:
-    save_path = 't5_base_decoder_type_none_no_encoder_mlp/'
+    save_path = 't5_base_decoder_type_none_no_encoder_mlp_normalize_embed/'
 else:
     save_path = None
 validate_every = 100000
@@ -244,7 +245,7 @@ trainer = Trainer(train_data=ds, model=model, optimizer=optimizer,
                   dev_data=eval_dataset, metrics=metric, metric_key='f',
                   validate_every=validate_every, save_path=save_path, use_tqdm='SEARCH_OUTPUT_FP' not in os.environ, device=device,
                   callbacks=callbacks, check_code_level=0, test_use_tqdm='SEARCH_OUTPUT_FP' not in os.environ,
-                  test_sampler=SortedSampler('src_seq_len'), dev_batch_size=batch_size*2)
+                  test_sampler=SortedSampler('src_seq_len'), dev_batch_size=batch_size // 3 * 2)
 
 trainer.train(load_best_model=True)
 

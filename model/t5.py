@@ -85,8 +85,9 @@ class FT5Decoder(Seq2SeqDecoder):
                                        fill_value=-1e24)
 
         # 首先计算的是
-        eos_scores = F.linear(hidden_state, self.decoder.embed_tokens.weight[EOS_ID:EOS_ID+1])  # bsz x max_len x 1
+        # eos_scores = F.linear(hidden_state, self.decoder.embed_tokens.weight[EOS_ID:EOS_ID+1])  # bsz x max_len x 1
         tag_scores = F.linear(hidden_state, self.decoder.embed_tokens.weight[self.label_start_id:self.label_end_id])  # bsz x max_len x num_class
+        eos_scores = F.linear(hidden_state, self.decoder.embed_tokens.weight[self.label_end_id:self.label_end_id+1])  # bsz x max_len x 1
 
         # bsz x max_word_len x hidden_size
         src_outputs = state.encoder_output
@@ -131,6 +132,8 @@ class OldT5Seq2SeqModel(Seq2SeqModel):
         encoder = model.encoder
         decoder = model.decoder
 
+        __normalize = lambda x: (x - x.mean()) / x.std() * 0.4356 - 0.0094
+
         _tokenizer = T5Tokenizer.from_pretrained(bart_model)
         for token in tokenizer.unique_no_split_tokens:
             if token[:2] == '<<':  # 特殊字符
@@ -146,7 +149,7 @@ class OldT5Seq2SeqModel(Seq2SeqModel):
                 for i in indexes[1:]:
                     embed += model.decoder.embed_tokens.weight.data[i]
                 embed /= len(indexes)
-                model.decoder.embed_tokens.weight.data[index] = embed
+                model.decoder.embed_tokens.weight.data[index] = __normalize(embed)
 
 
         encoder = FT5Encoder(encoder)
@@ -154,6 +157,8 @@ class OldT5Seq2SeqModel(Seq2SeqModel):
             decoder = FT5Decoder(decoder, pad_token_id=tokenizer.pad_token_id, label_ids=label_ids)
         else:
             raise RuntimeError("Unsupported feature.")
+
+        decoder.decoder.embed_tokens.weight.data[decoder.label_end_id] = __normalize(decoder.decoder.embed_tokens.weight.data[EOS_ID])
 
         return cls(encoder=encoder, decoder=decoder)
 
