@@ -1,3 +1,13 @@
+## TODO
+
+- [ ] Add MLP, set it as trainable
+- [ ] Debug T5: SequenceGenerator always 0 f1
+- [x] Debug T5: >200 loss on initialization
+- [ ] Finetune `t5-base` and achieve comparable performance with `bart-large`
+- [ ] Finetune `t5-11b` and achieve better performance than `bart-large`
+- [ ] Tuning only MLP after `encoder_out` and `embed_tokens` on `t5-base`
+- [ ] Tuning only MLP after `encoder_out` and a soft prompt
+
 This is the code for ACL-ICJNLP2021 paper [A Unified Generative Framework for Various NER Subtasks](https://arxiv.org/abs/2106.01223).
 
 Install the package in the requirements.txt, then use the following
@@ -131,7 +141,3 @@ We deeply understand how frustrating it can be
 if the results are hard to reproduce, we tried our best to make sure 
 the results were at least reproducible in our equipment (Usually take 
 average from at least  five runs).
-
-
-
-
