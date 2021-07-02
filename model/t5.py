@@ -71,11 +71,13 @@ class FT5Decoder(Seq2SeqDecoder):
                                 encoder_hidden_states=encoder_outputs,
                                 return_dict=True)
         else:
+            if tokens.size(1) == 1:
+                tokens = torch.full(tokens.shape, PAD_ID, device=tokens.device)
             past_key_values = state.past_key_values
             dict = self.decoder(input_ids=tokens,
                                 encoder_hidden_states=encoder_outputs,
                                 past_key_values=past_key_values,
-                                # use_cache=True,
+                                use_cache=True,
                                 return_dict=True)
         hidden_state = dict.last_hidden_state  # bsz x max_len x hidden_size
         if not self.training:

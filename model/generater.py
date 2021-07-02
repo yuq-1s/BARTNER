@@ -195,6 +195,7 @@ def _no_beam_search_generate(decoder: Seq2SeqDecoder, state, tokens=None, max_le
                              eos_token_id=None,
                              repetition_penalty=1.0, length_penalty=1.0, pad_token_id=0,
                              restricter=None):
+    is_t5 = 'T5' in decoder.__class__.__name__
     device = _get_model_device(decoder)
     if tokens is None:
         if bos_token_id is None:
@@ -240,6 +241,9 @@ def _no_beam_search_generate(decoder: Seq2SeqDecoder, state, tokens=None, max_le
         else:
             max_lengths = tokens.new_full((tokens.size(0),), fill_value=max_length, dtype=torch.long)
 
+    if is_t5:
+        assert token_ids.size(1) == 2
+        token_ids = token_ids[:, 1:2]
     while cur_len < real_max_length:
         scores = decoder.decode(tokens=token_ids, state=state)  # batch_size x vocab_size
 
@@ -282,7 +286,10 @@ def _no_beam_search_generate(decoder: Seq2SeqDecoder, state, tokens=None, max_le
     #     tokens.scatter(index=max_lengths[:, None], dim=1, value=eos_token_id)  # 将最大长度位置设置为eos
     # if cur_len == max_length:
     #     token_ids[:, -1].masked_fill_(~dones, eos_token_id)  # 若到最长长度仍未到EOS，则强制将最后一个词替换成eos
-    return token_ids
+    if is_t5:
+        return token_ids[:, 1:]
+    else:
+        return token_ids
 
 
 def _beam_search_generate(decoder: Seq2SeqDecoder, tokens=None, state=None, max_length=20, max_len_a=0.0, num_beams=4,

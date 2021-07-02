@@ -5,11 +5,12 @@ import numpy as np
 
 
 class Seq2SeqSpanMetric(MetricBase):
-    def __init__(self, eos_token_id, num_labels, target_type='bpe'):
+    def __init__(self, eos_token_id, num_labels, target_type='bpe', has_bos=True):
         super(Seq2SeqSpanMetric, self).__init__()
+        self.has_bos = int(has_bos)
         self.eos_token_id = eos_token_id
         self.num_labels = num_labels
-        self.word_start_index = num_labels+2  # +2是由于有前面有两个特殊符号，sos和eos
+        self.word_start_index = num_labels + 1 + self.has_bos  # +2是由于有前面有两个特殊符号，sos和eos
 
         self.fp = 0
         self.tp = 0
@@ -23,12 +24,12 @@ class Seq2SeqSpanMetric(MetricBase):
         pred_eos_index = pred.flip(dims=[1]).eq(self.eos_token_id).cumsum(dim=1).long()
         target_eos_index = tgt_tokens.flip(dims=[1]).eq(self.eos_token_id).cumsum(dim=1).long()
 
-        pred = pred[:, 1:]  # 去掉</s>
-        tgt_tokens = tgt_tokens[:, 1:]
+        pred = pred[:, self.has_bos:]  # 去掉</s>
+        tgt_tokens = tgt_tokens[:, self.has_bos:]
         pred_seq_len = pred_eos_index.flip(dims=[1]).eq(pred_eos_index[:, -1:]).sum(dim=1) # bsz
-        pred_seq_len = (pred_seq_len - 2).tolist()
+        pred_seq_len = (pred_seq_len - 1 - self.has_bos).tolist()
         target_seq_len = target_eos_index.flip(dims=[1]).eq(target_eos_index[:, -1:]).sum(dim=1) # bsz
-        target_seq_len = (target_seq_len-2).tolist()
+        target_seq_len = (target_seq_len - 1 - self.has_bos).tolist()
         pred_spans = []
         for i, (ts, ps) in enumerate(zip(target_span, pred.tolist())):
             em = 0

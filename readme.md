@@ -5,6 +5,7 @@
 - [x] Debug T5: >200 loss on initialization
 - [ ] Finetune `t5-base` and achieve comparable performance with `bart-large`
 - [ ] Finetune `t5-11b` and achieve better performance than `bart-large`
+- [ ] Add LM adaption for T5
 - [ ] Tuning only MLP after `encoder_out` and `embed_tokens` on `t5-base`
 - [ ] Tuning only MLP after `encoder_out` and a soft prompt
 

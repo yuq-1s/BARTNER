@@ -11,7 +11,7 @@ from data.pipe import BartNERPipe
 from model.t5 import T5Seq2SeqModel
 import fitlog
 
-from fastNLP import Trainer
+from fastNLP import Trainer, Tester
 from model.metrics import Seq2SeqSpanMetric
 from model.losses import Seq2SeqLoss, T5Seq2SeqLoss
 from torch import optim
@@ -139,7 +139,7 @@ print(data_bundle)
 print("The number of tokens in tokenizer ", len(tokenizer.get_vocab()))
 
 bos_token_id = tokenizer.pad_token_id
-eos_token_id = tokenizer.eos_token_id
+eos_token_id = 0 # This is not `tokenizer.eos_token_id`, but the model.decoder.mapping.index(tokenizer.eos_token_id)
 label_ids = list(mapping2id.values())
 use_encoder_mlp = False
 model = T5Seq2SeqModel.build_model(bart_name, tokenizer, label_ids=label_ids, decoder_type=decoder_type,
@@ -158,6 +158,9 @@ if torch.cuda.is_available():
     device = 'cuda'
 else:
     device = 'cpu'
+
+trained = torch.load('t5_base_decoder_type_none_no_encoder_mlp_normalize_embed/latest_SequenceGeneratorModel_f_2021-06-30-18-44-14-906181')
+model.load_state_dict(trained.state_dict())
 
 parameters = []
 params = {'lr':lr, 'weight_decay':1e-2}
@@ -226,7 +229,7 @@ elif ('large' in bart_name and dataset_name in ('en-ontonotes', 'genia')):
 else:
     sampler = BucketSampler(seq_len_field_name='src_seq_len')
 
-metric = Seq2SeqSpanMetric(eos_token_id, num_labels=len(label_ids), target_type=target_type)
+metric = Seq2SeqSpanMetric(eos_token_id, num_labels=len(label_ids), target_type=target_type, has_bos=False)
 
 ds = data_bundle.get_dataset('train')
 if dataset_name == 'conll2003':
@@ -234,10 +237,14 @@ if dataset_name == 'conll2003':
     # ds.concat(data_bundle.get_dataset('dev'))
     data_bundle.delete_dataset('dev')
 if save_model == 1:
-    save_path = 't5_base_decoder_type_none_no_encoder_mlp_normalize_embed/'
+    save_path = 't5_base_decoder_type_none_no_encoder_mlp_normalize_embed1/'
 else:
     save_path = None
 validate_every = 100000
+tester = Tester(eval_dataset[:64], model, metrics=metric, device=device, callbacks=callbacks, batch_size=4)
+tester.test()
+import pdb; pdb.set_trace()
+
 trainer = Trainer(train_data=ds, model=model, optimizer=optimizer,
                   loss=T5Seq2SeqLoss(),
                   batch_size=batch_size, sampler=sampler, drop_last=False, update_every=1,
