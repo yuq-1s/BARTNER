@@ -71,7 +71,7 @@ class FT5Decoder(Seq2SeqDecoder):
                                 encoder_hidden_states=encoder_outputs,
                                 return_dict=True)
         else:
-            if tokens.size(1) == 1:
+            if state.past_key_values is None:
                 tokens = torch.full(tokens.shape, PAD_ID, device=tokens.device)
             past_key_values = state.past_key_values
             dict = self.decoder(input_ids=tokens,
@@ -128,7 +128,11 @@ class OldT5Seq2SeqModel(Seq2SeqModel):
     @classmethod
     def build_model(cls, bart_model, tokenizer, label_ids, decoder_type=None,
                     use_encoder_mlp=False, use_prompt=False):
-        model = T5Model.from_pretrained(bart_model)
+        model = T5Model.from_pretrained(bart_model, mirror='tuna')
+        # model.parallelize({0: [0, 1, 2],
+        #                 1: [3, 4, 5, 6, 7, 8, 9],
+        #                 2: [10, 11, 12, 13, 14, 15, 16],
+        #                 3: [17, 18, 19, 20, 21, 22, 23]})
         num_tokens, _ = model.encoder.embed_tokens.weight.shape
         model.resize_token_embeddings(len(tokenizer.unique_no_split_tokens)+num_tokens)
         encoder = model.encoder
@@ -136,7 +140,7 @@ class OldT5Seq2SeqModel(Seq2SeqModel):
 
         __normalize = lambda x: (x - x.mean()) / x.std() * 0.4356 - 0.0094
 
-        _tokenizer = T5Tokenizer.from_pretrained(bart_model)
+        _tokenizer = T5Tokenizer.from_pretrained(bart_model, mirror='tuna')
         for token in tokenizer.unique_no_split_tokens:
             if token[:2] == '<<':  # 特殊字符
                 index = tokenizer.convert_tokens_to_ids(tokenizer.tokenize(token))

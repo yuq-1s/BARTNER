@@ -241,10 +241,10 @@ def _no_beam_search_generate(decoder: Seq2SeqDecoder, state, tokens=None, max_le
         else:
             max_lengths = tokens.new_full((tokens.size(0),), fill_value=max_length, dtype=torch.long)
 
-    if is_t5:
-        assert token_ids.size(1) == 2
-        token_ids = token_ids[:, 1:2]
+    all_token_ids = token_ids.clone()
     while cur_len < real_max_length:
+        if is_t5:
+            token_ids = token_ids[:, -1:]
         scores = decoder.decode(tokens=token_ids, state=state)  # batch_size x vocab_size
 
         if repetition_penalty != 1.0:
@@ -273,6 +273,8 @@ def _no_beam_search_generate(decoder: Seq2SeqDecoder, state, tokens=None, max_le
         next_tokens = next_tokens.masked_fill(dones, pad_token_id)  # 对已经搜索完成的sample做padding
         tokens = next_tokens.unsqueeze(1)
 
+        if is_t5:
+            all_token_ids = torch.cat([all_token_ids, tokens], dim=-1)
         token_ids = torch.cat([token_ids, tokens], dim=-1)  # batch_size x max_len
 
         end_mask = next_tokens.eq(_eos_token_id)
@@ -287,7 +289,7 @@ def _no_beam_search_generate(decoder: Seq2SeqDecoder, state, tokens=None, max_le
     # if cur_len == max_length:
     #     token_ids[:, -1].masked_fill_(~dones, eos_token_id)  # 若到最长长度仍未到EOS，则强制将最后一个词替换成eos
     if is_t5:
-        return token_ids[:, 1:]
+        return all_token_ids[:, 1:]
     else:
         return token_ids
 

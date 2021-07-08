@@ -38,12 +38,13 @@ args.save_model = 1
 # word: 生成word的start; bpe: 生成所有的bpe; span: 每一段按照start end生成; span_bpe: 每一段都是start的所有bpe，end的所有bpe
 args.target_type = 'word'
 # args.bart_name = 'facebook/bart-base'
-args.bart_name = 't5-base'
+# args.bart_name = 't5-base'
+args.bart_name = 't5-large'
 args.schedule = 'linear'
 args.decoder_type = None # 'avg_feature'
 args.n_epochs = 30000
 args.num_beams = 1
-args.batch_size = 12
+args.batch_size = 2
 args.use_encoder_mlp = 1
 args.lr = 1.5e-4
 args.warmup_ratio = 0.01
@@ -159,7 +160,7 @@ if torch.cuda.is_available():
 else:
     device = 'cpu'
 
-trained = torch.load('t5_base_decoder_type_none_no_encoder_mlp_normalize_embed/latest_SequenceGeneratorModel_f_2021-06-30-18-44-14-906181')
+trained = torch.load('t5_base_decoder_type_none_no_encoder_mlp_normalize_embed1/best_SequenceGeneratorModel_f_2021-07-02-12-20-09-872950')
 model.load_state_dict(trained.state_dict())
 
 parameters = []
@@ -252,7 +253,7 @@ trainer = Trainer(train_data=ds, model=model, optimizer=optimizer,
                   dev_data=eval_dataset, metrics=metric, metric_key='f',
                   validate_every=validate_every, save_path=save_path, use_tqdm='SEARCH_OUTPUT_FP' not in os.environ, device=device,
                   callbacks=callbacks, check_code_level=0, test_use_tqdm='SEARCH_OUTPUT_FP' not in os.environ,
-                  test_sampler=SortedSampler('src_seq_len'), dev_batch_size=batch_size // 3 * 2)
+                  test_sampler=SortedSampler('src_seq_len'), dev_batch_size=batch_size)
 
 trainer.train(load_best_model=True)
 
