@@ -34,5 +34,6 @@ class T5Seq2SeqLoss(LossBase):
         """
         mask = seq_len_to_mask(tgt_seq_len, max_len=tgt_tokens.size(1)).eq(0)
         tgt_tokens = tgt_tokens.masked_fill(mask, -100)
+        tgt_tokens = tgt_tokens.to(pred.device)
         loss = F.cross_entropy(target=tgt_tokens, input=pred.transpose(1, 2))
         return loss

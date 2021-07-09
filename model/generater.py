@@ -222,6 +222,7 @@ def _no_beam_search_generate(decoder: Seq2SeqDecoder, state, tokens=None, max_le
         _, next_tokens = restricter(state, tokens, scores, num_beams=1)
     else:
         next_tokens = scores.argmax(dim=-1, keepdim=True)
+    next_tokens = next_tokens.to(tokens.device)
     token_ids = torch.cat([tokens, next_tokens], dim=1)
     cur_len = token_ids.size(1)
     dones = token_ids.new_zeros(batch_size).eq(1).__or__(next_tokens.squeeze(1).eq(eos_token_id))
@@ -266,6 +267,7 @@ def _no_beam_search_generate(decoder: Seq2SeqDecoder, state, tokens=None, max_le
         else:
             next_tokens = scores.argmax(dim=-1, keepdim=True)
         next_tokens = next_tokens.squeeze(-1)
+        next_tokens = next_tokens.to(all_token_ids.device)
 
         # 如果已经达到对应的sequence长度了，就直接填为eos了
         if _eos_token_id!=-1:

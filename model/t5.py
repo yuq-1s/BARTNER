@@ -88,11 +88,14 @@ class FT5Decoder(Seq2SeqDecoder):
 
         # 首先计算的是
         # eos_scores = F.linear(hidden_state, self.decoder.embed_tokens.weight[EOS_ID:EOS_ID+1])  # bsz x max_len x 1
+
+        hidden_state = hidden_state.to(self.decoder.embed_tokens.weight.device)
         tag_scores = F.linear(hidden_state, self.decoder.embed_tokens.weight[self.label_start_id:self.label_end_id])  # bsz x max_len x num_class
         eos_scores = F.linear(hidden_state, self.decoder.embed_tokens.weight[self.label_end_id:self.label_end_id+1])  # bsz x max_len x 1
 
         # bsz x max_word_len x hidden_size
         src_outputs = state.encoder_output
+        src_outputs = src_outputs.to(self.decoder.embed_tokens.weight.device)
 
         if first is not None:
             mask = first.eq(0)  # bsz x 1 x max_word_len, 为1的地方是padding
@@ -129,10 +132,11 @@ class OldT5Seq2SeqModel(Seq2SeqModel):
     def build_model(cls, bart_model, tokenizer, label_ids, decoder_type=None,
                     use_encoder_mlp=False, use_prompt=False):
         model = T5Model.from_pretrained(bart_model, mirror='tuna')
-        # model.parallelize({0: [0, 1, 2],
+        # device_map = {0: [0, 1, 2],
         #                 1: [3, 4, 5, 6, 7, 8, 9],
         #                 2: [10, 11, 12, 13, 14, 15, 16],
-        #                 3: [17, 18, 19, 20, 21, 22, 23]})
+        #                 3: [17, 18, 19, 20, 21, 22, 23]}
+        model.parallelize()
         num_tokens, _ = model.encoder.embed_tokens.weight.shape
         model.resize_token_embeddings(len(tokenizer.unique_no_split_tokens)+num_tokens)
         encoder = model.encoder
