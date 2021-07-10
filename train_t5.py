@@ -44,11 +44,11 @@ args.schedule = 'linear'
 args.decoder_type = None # 'avg_feature'
 args.n_epochs = 30000
 args.num_beams = 1
-args.batch_size = 1
+args.batch_size = 16
 args.use_encoder_mlp = 1
 args.lr = 1.5e-4
 args.warmup_ratio = 0.01
-eval_start_epoch = 1
+eval_start_epoch = 0
 
 # the following hyper-parameters are for target_type=word
 if dataset_name == 'conll2003':  # three runs get 93.18/93.18/93.36 F1
@@ -243,11 +243,12 @@ if save_model == 1:
     save_path = f'{args.bart_name}_decoder_type_none_no_encoder_mlp_normalize_embed1/'
 else:
     save_path = None
-validate_every = 100000
+validate_every = 1
 # tester = Tester(eval_dataset[:64], model, metrics=metric, device=device, callbacks=callbacks, batch_size=4)
 # tester.test()
 # import pdb; pdb.set_trace()
 
+eval_dataset = eval_dataset[:128]
 trainer = Trainer(train_data=ds, model=model, optimizer=optimizer,
                   loss=T5Seq2SeqLoss(),
                   batch_size=batch_size, sampler=sampler, drop_last=False, update_every=1,
@@ -255,7 +256,7 @@ trainer = Trainer(train_data=ds, model=model, optimizer=optimizer,
                   dev_data=eval_dataset, metrics=metric, metric_key='f',
                   validate_every=validate_every, save_path=save_path, use_tqdm='SEARCH_OUTPUT_FP' not in os.environ, device=device,
                   callbacks=callbacks, check_code_level=0, test_use_tqdm='SEARCH_OUTPUT_FP' not in os.environ,
-                  test_sampler=SortedSampler('src_seq_len'), dev_batch_size=batch_size)
+                  test_sampler=SortedSampler('src_seq_len'), dev_batch_size=4)
 
 trainer.train(load_best_model=True)
 
