@@ -1,3 +1,7 @@
+# Towards parameter-efficient tuning of large models for NER
+
+Currently, this repo targets T5 for NER.
+
 ## TODO
 
 - [ ] Add MLP, set it as trainable
@@ -8,6 +12,47 @@
 - [ ] Add LM adaption for T5
 - [ ] Tuning only MLP after `encoder_out` and `embed_tokens` on `t5-base`
 - [ ] Tuning only MLP after `encoder_out` and a soft prompt
+
+## Install
+
+To run this version with model parallel, some modifications to the following libraries are needed.
+
+- fastNLP==0.6.0
+
+fastNLP/core/trainer.py:792
+```
+-    def _save_model(self, model, model_name, only_param=False):
++    def _save_model(self, model, model_name, only_param=True):
+```
+Otherwise fastNLP will load all parameters into `cuda:0`, invalidating model parallel.
+
+- transformers==4.7.0
+
+```
+--- /tmp/modeling_t5_orig.py    2021-07-10 10:32:13.078207891 +0800
++++ transformers/models/t5/modeling_t5.py        2021-07-09 16:46:14.836178715 +0800
+@@ -244,6 +244,8 @@
+         # convert into float16 if necessary
+         if self.weight.dtype == torch.float16:
+             hidden_states = hidden_states.to(torch.float16)
++        if hidden_states.device != self.weight.device:
++            self.to(hidden_states.device)
+         return self.weight * hidden_states
+@@ -993,6 +996,8 @@
+                     None,  # past_key_value is always None with gradient checkpointing
+                 )
+             else:
++                if self.model_parallel:
++                    layer_module.to(hidden_states.device)
+                 layer_outputs = layer_module(
+                     hidden_states,
+                     attention_mask=extended_attention_mask,
+
+```
+
+Otherwise torch complains incompatible cuda devices with model parallel.
+
+## Original README
 
 This is the code for ACL-ICJNLP2021 paper [A Unified Generative Framework for Various NER Subtasks](https://arxiv.org/abs/2106.01223).
 
