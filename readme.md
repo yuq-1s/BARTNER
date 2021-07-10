@@ -5,9 +5,9 @@ Currently, this repo targets T5 for NER.
 ## TODO
 
 - [ ] Add MLP, set it as trainable
-- [ ] Debug T5: SequenceGenerator always 0 f1
+- [x] Debug T5: SequenceGenerator always 0 f1
 - [x] Debug T5: >200 loss on initialization
-- [ ] Finetune `t5-base` and achieve comparable performance with `bart-large`
+- [x] Finetune `t5-base` and achieve comparable performance with `bart-large`
 - [ ] Finetune `t5-11b` and achieve better performance than `bart-large`
 - [ ] Add LM adaption for T5
 - [ ] Tuning only MLP after `encoder_out` and `embed_tokens` on `t5-base`
@@ -19,10 +19,31 @@ To run this version with model parallel, some modifications to the following lib
 
 - fastNLP==0.6.0
 
-fastNLP/core/trainer.py:792
 ```
+--- /tmp/trainer_orig.py        2021-07-10 03:57:06.348091151 +0000
++++ .venv/lib/python3.9/site-packages/fastNLP/core/trainer.py       2021-07-10 03:58:34.512642014 +0000
+@@ -500,7 +500,11 @@
+             raise TypeError("train_data type {} not support".format(type(train_data)))
+ 
+         model.train()
+-        self.model = _move_model_to_device(model, device=device)
++        some_param = next(iter(model.parameters()))
++        if some_param.device.type == 'cpu':
++            self.model = _move_model_to_device(model, device=device)
++        else:
++            self.model = model
+         if _model_contains_inner_module(self.model):
+             self._forward_func = self.model.module.forward
+         else:
+@@ -789,7 +793,7 @@
+         """
+         return self.losser(predict, truth)
+ 
 -    def _save_model(self, model, model_name, only_param=False):
 +    def _save_model(self, model, model_name, only_param=True):
+         r""" 存储不含有显卡信息的state_dict或model
+         :param model:
+         :param model_name:
 ```
 Otherwise fastNLP will load all parameters into `cuda:0`, invalidating model parallel.
 
@@ -30,7 +51,7 @@ Otherwise fastNLP will load all parameters into `cuda:0`, invalidating model par
 
 ```
 --- /tmp/modeling_t5_orig.py    2021-07-10 10:32:13.078207891 +0800
-+++ transformers/models/t5/modeling_t5.py        2021-07-09 16:46:14.836178715 +0800
++++ .venv/lib/python3.9/site-packages/transformers/models/t5/modeling_t5.py        2021-07-09 16:46:14.836178715 +0800
 @@ -244,6 +244,8 @@
          # convert into float16 if necessary
          if self.weight.dtype == torch.float16:

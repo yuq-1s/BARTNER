@@ -52,6 +52,7 @@ class FT5Decoder(Seq2SeqDecoder):
         # 把输入做一下映射
         mapping_token_mask = tokens.lt(self.src_start_index)  # 为1的地方应该从mapping中取index
         mapped_tokens = tokens.masked_fill(tokens.ge(self.src_start_index), 0)
+        self.mapping = self.mapping.to(mapped_tokens.device)
         tag_mapped_tokens = self.mapping[mapped_tokens]
 
         src_tokens_index = tokens - self.src_start_index # bsz x num_src_token
@@ -131,11 +132,7 @@ class OldT5Seq2SeqModel(Seq2SeqModel):
     @classmethod
     def build_model(cls, bart_model, tokenizer, label_ids, decoder_type=None,
                     use_encoder_mlp=False, use_prompt=False):
-        model = T5Model.from_pretrained(bart_model, mirror='tuna')
-        # device_map = {0: [0, 1, 2],
-        #                 1: [3, 4, 5, 6, 7, 8, 9],
-        #                 2: [10, 11, 12, 13, 14, 15, 16],
-        #                 3: [17, 18, 19, 20, 21, 22, 23]}
+        model = T5Model.from_pretrained(bart_model, mirror='tuna', local_files_only=True)
         model.parallelize()
         num_tokens, _ = model.encoder.embed_tokens.weight.shape
         model.resize_token_embeddings(len(tokenizer.unique_no_split_tokens)+num_tokens)
@@ -144,7 +141,7 @@ class OldT5Seq2SeqModel(Seq2SeqModel):
 
         __normalize = lambda x: (x - x.mean()) / x.std() * 0.4356 - 0.0094
 
-        _tokenizer = T5Tokenizer.from_pretrained(bart_model, mirror='tuna')
+        _tokenizer = T5Tokenizer.from_pretrained(bart_model, mirror='https://mirrors.tuna.tsinghua.edu.cn/hugging-face-models', local_files_only=True)
         for token in tokenizer.unique_no_split_tokens:
             if token[:2] == '<<':  # 特殊字符
                 index = tokenizer.convert_tokens_to_ids(tokenizer.tokenize(token))

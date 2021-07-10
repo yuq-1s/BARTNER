@@ -39,15 +39,17 @@ args.save_model = 1
 args.target_type = 'word'
 # args.bart_name = 'facebook/bart-base'
 # args.bart_name = 't5-base'
-args.bart_name = 't5-3b'
+args.bart_name = 't5-11b'
 args.schedule = 'linear'
 args.decoder_type = None # 'avg_feature'
 args.n_epochs = 30000
 args.num_beams = 1
-args.batch_size = 16
+args.batch_size = 1
+args.dev_batch_size = 1
 args.use_encoder_mlp = 1
 args.lr = 1.5e-4
 args.warmup_ratio = 0.01
+args.mode = 'finetune'
 eval_start_epoch = 0
 
 # the following hyper-parameters are for target_type=word
@@ -163,34 +165,39 @@ else:
 # trained = torch.load('t5_base_decoder_type_none_no_encoder_mlp_normalize_embed1/best_SequenceGeneratorModel_f_2021-07-02-12-20-09-872950')
 # model.load_state_dict(trained.state_dict())
 
-parameters = []
-params = {'lr':lr, 'weight_decay':1e-2}
-params['params'] = [param for name, param in model.named_parameters() if not ('t5_encoder' in name or 'decoder' in name)]
-if params['params']:
-    parameters.append(params)
+if args.mode == 'full_vocab':
+    parameters = [{'lr': lr, 'weight_decay': 1e-2, 'params': []}]
+    for name, param in model.named_parameters():
+        if name != 'seq2seq_model.encoder.t5_encoder.embed_tokens.weight':
+            param.requires_grad = False
+        else:
+            parameters[0]['params'].append(param)
+elif args.mode == 'prompt':
+    raise NotImplementedError('prompt not implemented now')
+elif args.mode == 'finetune':
+    parameters = []
+    params = {'lr':lr, 'weight_decay':1e-2}
+    params['params'] = [param for name, param in model.named_parameters() if not ('t5_encoder' in name or 'decoder' in name)]
+    if params['params']:
+        parameters.append(params)
 
-params = {'lr':lr, 'weight_decay':1e-2}
-params['params'] = []
-for name, param in model.named_parameters():
-    if ('t5_encoder' in name or 'decoder' in name) and not ('layernorm' in name or 'layer_norm' in name):
-        params['params'].append(param)
-if params['params']:
-    parameters.append(params)
+    params = {'lr':lr, 'weight_decay':1e-2}
+    params['params'] = []
+    for name, param in model.named_parameters():
+        if ('t5_encoder' in name or 'decoder' in name) and not ('layernorm' in name or 'layer_norm' in name):
+            params['params'].append(param)
+    if params['params']:
+        parameters.append(params)
 
-params = {'lr':lr, 'weight_decay':0}
-params['params'] = []
-for name, param in model.named_parameters():
-    if ('t5_encoder' in name or 'decoder' in name) and ('layernorm' in name or 'layer_norm' in name):
-        params['params'].append(param)
-if params['params']:
-    parameters.append(params)
-
-# parameters = [{'lr': lr, 'weight_decay': 1e-2, 'params': []}]
-# for name, param in model.named_parameters():
-#     if name != 'seq2seq_model.encoder.t5_encoder.embed_tokens.weight':
-#         param.requires_grad = False
-#     else:
-#         parameters[0]['params'].append(param)
+    params = {'lr':lr, 'weight_decay':0}
+    params['params'] = []
+    for name, param in model.named_parameters():
+        if ('t5_encoder' in name or 'decoder' in name) and ('layernorm' in name or 'layer_norm' in name):
+            params['params'].append(param)
+    if params['params']:
+        parameters.append(params)
+else:
+    raise ValueError(f"Unknown mode {mode}")
 optimizer = optim.AdamW(parameters)
 
 callbacks = []
@@ -240,10 +247,10 @@ if dataset_name == 'conll2003':
     # ds.concat(data_bundle.get_dataset('dev'))
     data_bundle.delete_dataset('dev')
 if save_model == 1:
-    save_path = f'{args.bart_name}_decoder_type_none_no_encoder_mlp_normalize_embed1/'
+    save_path = f'{args.bart_name}_{args.mode}_decoder_type_none_no_encoder_mlp_normalize_embed/'
 else:
     save_path = None
-validate_every = 1
+validate_every = 2000
 # tester = Tester(eval_dataset[:64], model, metrics=metric, device=device, callbacks=callbacks, batch_size=4)
 # tester.test()
 # import pdb; pdb.set_trace()
@@ -256,7 +263,7 @@ trainer = Trainer(train_data=ds, model=model, optimizer=optimizer,
                   dev_data=eval_dataset, metrics=metric, metric_key='f',
                   validate_every=validate_every, save_path=save_path, use_tqdm='SEARCH_OUTPUT_FP' not in os.environ, device=device,
                   callbacks=callbacks, check_code_level=0, test_use_tqdm='SEARCH_OUTPUT_FP' not in os.environ,
-                  test_sampler=SortedSampler('src_seq_len'), dev_batch_size=4)
+                  test_sampler=SortedSampler('src_seq_len'), dev_batch_size=args.dev_batch_size)
 
 trainer.train(load_best_model=True)
 
