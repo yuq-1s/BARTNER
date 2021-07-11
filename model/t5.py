@@ -131,7 +131,7 @@ class FT5Decoder(Seq2SeqDecoder):
         else:
             mask = state.encoder_mask.eq(0)
 
-d        if hasattr(self, 'encoder_mlp'):
+        if hasattr(self, 'encoder_mlp'):
             src_outputs = self.encoder_mlp(src_outputs)
 
         # If prompt is added, remove it for decoder
