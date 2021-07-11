@@ -15,7 +15,7 @@ Currently, this repo targets T5 for NER. Current results on CoNLL 2003:
 - [x] Debug T5: SequenceGenerator always 0 f1
 - [x] Debug T5: >200 loss on initialization
 - [x] Finetune `t5-base` and achieve comparable performance with `bart-large`
-- [ ] Finetune `t5-11b` and achieve better performance than `bart-large`
+- [x] Finetune `t5-11b` and achieve better performance than `bart-large`
 - [ ] Add LM adaption for T5
 - [ ] Tuning only MLP after `encoder_out` and `embed_tokens` on `t5-base`
 - [ ] Tuning only MLP after `encoder_out` and a soft prompt
@@ -51,6 +51,21 @@ To run this version with model parallel, some modifications to the following lib
          r""" 存储不含有显卡信息的state_dict或model
          :param model:
          :param model_name:
+--- /tmp/tester_orig.py 2021-07-11 05:47:02.723080056 +0000
++++ .venv/lib/python3.9/site-packages/fastNLP/core/tester.py  2021-07-11 05:47:07.457005462 +0000
+@@ -103,7 +103,11 @@
+         self.metrics = _prepare_metrics(metrics)
+         
+         self.data = data
+-        self._model = _move_model_to_device(model, device=device)
++        some_param = next(iter(model.parameters()))
++        if some_param.device.type == 'cpu':
++            self._model = _move_model_to_device(model, device=device)
++        else:
++            self._model = model
+         self.batch_size = batch_size
+         self.verbose = verbose
+         self.use_tqdm = use_tqdm
 ```
 Otherwise fastNLP will load all parameters into `cuda:0`, invalidating model parallel.
 

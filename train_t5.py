@@ -44,12 +44,12 @@ args.schedule = 'linear'
 args.decoder_type = None # 'avg_feature'
 args.n_epochs = 30000
 args.num_beams = 1
-args.batch_size = 1
-args.dev_batch_size = 1
+args.batch_size = 8
+args.dev_batch_size = 4
 args.use_encoder_mlp = 1
 args.lr = 1.5e-4
 args.warmup_ratio = 0.01
-args.mode = 'finetune'
+args.mode = 'test'
 eval_start_epoch = 0
 
 # the following hyper-parameters are for target_type=word
@@ -146,7 +146,9 @@ eos_token_id = 0 # This is not `tokenizer.eos_token_id`, but the model.decoder.m
 label_ids = list(mapping2id.values())
 use_encoder_mlp = False
 model = T5Seq2SeqModel.build_model(bart_name, tokenizer, label_ids=label_ids, decoder_type=decoder_type,
-                                     use_encoder_mlp=use_encoder_mlp)
+                                   use_encoder_mlp=use_encoder_mlp,
+                                   checkpoint_path='t5-11b_finetune_decoder_type_none_no_encoder_mlp_normalize_embed/best_SequenceGeneratorModel_f_2021-07-10-10-13-33-882992' if args.mode == 'test' else None
+)
 
 vocab_size = len(tokenizer)
 print(vocab_size, model.decoder.decoder.embed_tokens.weight.data.size(0))
@@ -162,8 +164,6 @@ if torch.cuda.is_available():
 else:
     device = 'cpu'
 
-# trained = torch.load('t5_base_decoder_type_none_no_encoder_mlp_normalize_embed1/best_SequenceGeneratorModel_f_2021-07-02-12-20-09-872950')
-# model.load_state_dict(trained.state_dict())
 
 if args.mode == 'full_vocab':
     parameters = [{'lr': lr, 'weight_decay': 1e-2, 'params': []}]
@@ -196,9 +196,12 @@ elif args.mode == 'finetune':
             params['params'].append(param)
     if params['params']:
         parameters.append(params)
+elif args.mode == 'test':
+    pass
 else:
     raise ValueError(f"Unknown mode {mode}")
-optimizer = optim.AdamW(parameters)
+if args.mode != 'test':
+    optimizer = optim.AdamW(parameters)
 
 callbacks = []
 callbacks.append(GradientClipCallback(clip_value=5, clip_type='value'))
@@ -250,11 +253,13 @@ if save_model == 1:
     save_path = f'{args.bart_name}_{args.mode}_decoder_type_none_no_encoder_mlp_normalize_embed/'
 else:
     save_path = None
-validate_every = 2000
-# tester = Tester(eval_dataset[:64], model, metrics=metric, device=device, callbacks=callbacks, batch_size=4)
-# tester.test()
-# import pdb; pdb.set_trace()
 
+if args.mode == 'test':
+    tester = Tester(eval_dataset, model, metrics=metric, device=device, callbacks=callbacks, batch_size=args.dev_batch_size)
+    tester.test()
+    import sys; sys.exit(0)
+
+validate_every = 10000 // args.batch_size
 eval_dataset = eval_dataset[:128]
 trainer = Trainer(train_data=ds, model=model, optimizer=optimizer,
                   loss=T5Seq2SeqLoss(),

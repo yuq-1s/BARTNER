@@ -127,15 +127,34 @@ class FT5Decoder(Seq2SeqDecoder):
         assert torch.all(shifted_input_ids >= 0).item(), "Verify that `shifted_input_ids` has only positive values"
         return shifted_input_ids
 
+def fix_loaded_state_dict(trained_state_dict):
+    for k, v in trained_state_dict.items():
+        if k == 'seq2seq_model.decoder.mapping':
+            yield 'shared.weight', trained_state_dict['seq2seq_model.encoder.t5_encoder.embed_tokens.weight']
+        elif 'encoder' in k:
+            i = k.rfind('encoder')
+            yield k[i:], v
+        elif 'decoder' in k:
+            i = k.rfind('decoder')
+            yield k[i:], v
 
 class OldT5Seq2SeqModel(Seq2SeqModel):
     @classmethod
     def build_model(cls, bart_model, tokenizer, label_ids, decoder_type=None,
-                    use_encoder_mlp=False, use_prompt=False):
+                    use_encoder_mlp=False, use_prompt=False, checkpoint_path=None):
         model = T5Model.from_pretrained(bart_model, mirror='tuna', local_files_only=True)
-        model.parallelize()
         num_tokens, _ = model.encoder.embed_tokens.weight.shape
+        # FIXME: Speed up T5: T5's vocab of 32128 has no need to resize_token_embeddings here
         model.resize_token_embeddings(len(tokenizer.unique_no_split_tokens)+num_tokens)
+        if checkpoint_path is not None:
+            trained = torch.load(checkpoint_path)
+            if hasattr(trained, 'state_dict'):
+                trained = trained.state_dict()
+            if trained.keys() != model.state_dict().keys():
+                trained = dict(fix_loaded_state_dict(trained))
+            model.load_state_dict(trained)
+            logging.info(f"Loading {checkpoint_path} succeeded.")
+        model.parallelize()
         encoder = model.encoder
         decoder = model.decoder
 
@@ -228,7 +247,7 @@ class T5Seq2SeqModel(OldT5Seq2SeqModel):
     pass
     # def __init__(self, encoder, decoder):
     #     super().__init__(encoder, decoder)
-    #     self.special_token = T5Tokenizer.from_pretrained('facebook/bart-large').get_vocab()['ÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤ']
+    #     self.special_token = encoder.embed_tokens.weight[-1].clone().detach()
 
     # def forward(self, src_tokens, tgt_tokens, src_seq_len, tgt_seq_len, first):
     #     # self._tokenizer
