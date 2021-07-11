@@ -39,17 +39,17 @@ args.save_model = 1
 args.target_type = 'word'
 # args.bart_name = 'facebook/bart-base'
 # args.bart_name = 't5-large'
-args.bart_name = 't5-11b'
+args.bart_name = 't5-3b'
 args.schedule = 'linear'
 args.decoder_type = None # 'avg_feature'
 args.n_epochs = 30000
 args.num_beams = 1
-args.batch_size = 4
+args.batch_size = 8
 args.dev_batch_size = 4
 args.use_encoder_mlp = 1
 args.lr = 1.5e-2
 args.warmup_ratio = 0.01
-args.mode = 'finetune'
+args.mode = 'prompt'
 eval_start_epoch = 0
 
 # the following hyper-parameters are for target_type=word
@@ -146,7 +146,7 @@ eos_token_id = 0 # This is not `tokenizer.eos_token_id`, but the model.decoder.m
 label_ids = list(mapping2id.values())
 use_encoder_mlp = False
 model = T5Seq2SeqModel.build_model(bart_name, tokenizer, label_ids=label_ids, decoder_type=decoder_type,
-                                   use_encoder_mlp=use_encoder_mlp,
+                                   use_encoder_mlp=use_encoder_mlp, use_prompt=(args.mode == 'prompt'),
                                 #    checkpoint_path='t5-11b_finetune_decoder_type_none_no_encoder_mlp_normalize_embed/best_SequenceGeneratorModel_f_2021-07-10-10-13-33-882992' if args.mode == 'test' else None
                                 #    checkpoint_path='t5_base_decoder_type_none_no_encoder_mlp_normalize_embed1/best_SequenceGeneratorModel_f_2021-07-02-12-20-09-872950' if args.mode == 'test' else None,
                                    model_parallel=(bart_name in ['t5-11b', 't5-3b'])
@@ -175,7 +175,12 @@ if args.mode == 'full_vocab':
         else:
             parameters[0]['params'].append(param)
 elif args.mode == 'prompt':
-    raise NotImplementedError('prompt not implemented now')
+    parameters = [{'lr': lr, 'weight_decay': 1e-2, 'params': [model.seq2seq_model.encoder.soft_prompt_embed.weight]}]
+    for name, param in model.named_parameters():
+        if name != 'seq2seq_model.encoder.soft_prompt_embed.weight':
+            param.requires_grad = False
+        else:
+            parameters[0]['params'].append(param)
 elif args.mode == 'finetune':
     parameters = []
     params = {'lr':lr, 'weight_decay':1e-2}
@@ -252,7 +257,7 @@ if dataset_name == 'conll2003':
     # ds.concat(data_bundle.get_dataset('dev'))
     data_bundle.delete_dataset('dev')
 if save_model == 1:
-    save_path = f'ckpts/{args.bart_name}_{args.mode}_decoder_type_none_no_encoder_mlp_normalize_embed/'
+    save_path = f'ckpts/{args.bart_name}_{args.mode}_{args.lr}_decoder_type_none_no_encoder_mlp_normalize_embed/'
 else:
     save_path = None
 
@@ -261,7 +266,7 @@ if args.mode == 'test':
     tester.test()
     import sys; sys.exit(0)
 
-validate_every = 10000 // args.batch_size
+validate_every = 100000 // args.batch_size
 eval_dataset = eval_dataset[:128]
 trainer = Trainer(train_data=ds, model=model, optimizer=optimizer,
                   loss=T5Seq2SeqLoss(),

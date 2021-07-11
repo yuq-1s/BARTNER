@@ -11,6 +11,28 @@ import logging
 EOS_ID = 1
 PAD_ID = 0
 
+class PromptFT5Encoder(Seq2SeqEncoder):
+    def __init__(self, encoder):
+        super().__init__()
+        # assert isinstance(encoder, T5Stack)
+        self.t5_encoder = encoder
+        original_embed = encoder.embed_tokens.weight
+        self.soft_prompt_embed = nn.Embedding(1, original_embed.size(1))
+        self.soft_prompt_embed.weight.data = encoder.embed_tokens.weight[32127].clone().detach().to(original_embed.device)
+        self.soft_prompt_embed.requires_grad_(True)
+        # self.register_buffer('soft_prompt_embed', soft_prompt_embed)
+
+    def forward(self, src_tokens, src_seq_len):
+        embeddings = self.t5_encoder.embed_tokens(src_tokens)
+        prompt_embeddings = self.soft_prompt_embed.weight.repeat((src_tokens.size(0), 1, 1))
+        embeddings = torch.cat([prompt_embeddings, embeddings], dim=1)
+        mask = seq_len_to_mask(src_seq_len+1, max_len=embeddings.size(1))
+        dict = self.t5_encoder(inputs_embeds=embeddings, attention_mask=mask, return_dict=True,
+                                 output_hidden_states=True)
+        encoder_outputs = dict.last_hidden_state
+        hidden_states = dict.hidden_states
+        return encoder_outputs, mask, hidden_states
+
 class FT5Encoder(Seq2SeqEncoder):
     def __init__(self, encoder):
         super().__init__()
@@ -41,7 +63,6 @@ class FT5Decoder(Seq2SeqDecoder):
 
     def forward(self, tokens, state):
         encoder_outputs = state.encoder_output
-        encoder_pad_mask = state.encoder_mask
 
         first = state.first
 
@@ -104,6 +125,10 @@ class FT5Decoder(Seq2SeqDecoder):
         else:
             mask = state.encoder_mask.eq(0)
 
+        # If prompt is added, remove it for decoder
+        if src_tokens.shape != mask.shape:
+            mask = mask[:, 1:]
+            src_outputs = src_outputs[:, 1:]
         mask = mask.unsqueeze(1).__or__(src_tokens.eq(EOS_ID).cumsum(dim=1).bool().unsqueeze(1))
         word_scores = torch.einsum('blh,bnh->bln', hidden_state, src_outputs)  # bsz x max_len x max_word_len
         word_scores = word_scores.masked_fill(mask, -1e32)
@@ -138,14 +163,14 @@ def fix_loaded_state_dict(trained_state_dict):
             i = k.rfind('decoder')
             yield k[i:], v
 
-class OldT5Seq2SeqModel(Seq2SeqModel):
+class T5Seq2SeqModel(Seq2SeqModel):
     @classmethod
     def build_model(cls, bart_model, tokenizer, label_ids, decoder_type=None,
                     use_encoder_mlp=False, use_prompt=False, checkpoint_path=None, model_parallel=False):
-        model = T5Model.from_pretrained(bart_model, mirror='tuna', local_files_only=True)
+        model = T5Model.from_pretrained(bart_model, mirror='tuna')
         num_tokens, _ = model.encoder.embed_tokens.weight.shape
         # FIXME: Speed up T5: T5's vocab of 32128 has no need to resize_token_embeddings here
-        model.resize_token_embeddings(len(tokenizer.unique_no_split_tokens)+num_tokens)
+        # model.resize_token_embeddings(len(tokenizer.unique_no_split_tokens)+num_tokens)
         if checkpoint_path is not None:
             trained = torch.load(checkpoint_path)
             if hasattr(trained, 'state_dict'):
@@ -178,8 +203,10 @@ class OldT5Seq2SeqModel(Seq2SeqModel):
                 embed /= len(indexes)
                 model.decoder.embed_tokens.weight.data[index] = __normalize(embed)
 
-
-        encoder = FT5Encoder(encoder)
+        if use_prompt:
+            encoder = PromptFT5Encoder(encoder)
+        else:
+            encoder = FT5Encoder(encoder)
         if decoder_type is None:
             decoder = FT5Decoder(decoder, pad_token_id=tokenizer.pad_token_id, label_ids=label_ids)
         else:
@@ -244,21 +271,21 @@ class BartState(State):
                 new.append(new_layer)
             self.past_key_values = new
 
-class T5Seq2SeqModel(OldT5Seq2SeqModel):
-    pass
-    # def __init__(self, encoder, decoder):
-    #     super().__init__(encoder, decoder)
-    #     self.special_token = encoder.embed_tokens.weight[-1].clone().detach()
+# class T5Seq2SeqModel(OldT5Seq2SeqModel):
+#     def __init__(self, encoder, decoder):
+#         super().__init__(encoder, decoder)
+#         special_token = 32127
+#         special_token = encoder.t5_encoder.embed_tokens.weight[-1].clone().detach()
+#         special_token.requires_grad_(True)
+#         self.register_buffer('special_token', special_token)
 
-    # def forward(self, src_tokens, tgt_tokens, src_seq_len, tgt_seq_len, first):
-    #     # self._tokenizer
-    #     with torch.no_grad():
-    #         assert self.special_token not in src_tokens
-    #         B = src_tokens.size(0)
-    #         zeros = torch.zeros(B, 1, device='cuda', dtype=int)
-    #         special_token = torch.ones(B, 1, device='cuda', dtype=int) * self.special_token
-    #         src_tokens = torch.cat((zeros, special_token, src_tokens[:, 1:]), dim=1)
-    #         src_seq_len += 1
-    #         first += (first > 0)
-    #         # FIXME: first at padding
-    #     return super().forward(src_tokens, tgt_tokens, src_seq_len, tgt_seq_len, first)
+#     def forward(self, src_tokens, tgt_tokens, src_seq_len, tgt_seq_len, first):
+#         with torch.no_grad():
+#             # assert self.special_token not in src_tokens
+#             B = src_tokens.size(0)
+#             special_tokens = repeat(self.special_token, f'd -> {B} d')
+#             src_tokens = torch.cat((special_tokens, src_tokens), dim=1)
+#             src_seq_len += 1
+#             first += (first > 0)
+#             # FIXME: first at padding
+#         return super().forward(src_tokens, tgt_tokens, src_seq_len, tgt_seq_len, first)
