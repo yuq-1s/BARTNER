@@ -141,7 +141,7 @@ def fix_loaded_state_dict(trained_state_dict):
 class OldT5Seq2SeqModel(Seq2SeqModel):
     @classmethod
     def build_model(cls, bart_model, tokenizer, label_ids, decoder_type=None,
-                    use_encoder_mlp=False, use_prompt=False, checkpoint_path=None):
+                    use_encoder_mlp=False, use_prompt=False, checkpoint_path=None, model_parallel=False):
         model = T5Model.from_pretrained(bart_model, mirror='tuna', local_files_only=True)
         num_tokens, _ = model.encoder.embed_tokens.weight.shape
         # FIXME: Speed up T5: T5's vocab of 32128 has no need to resize_token_embeddings here
@@ -154,7 +154,8 @@ class OldT5Seq2SeqModel(Seq2SeqModel):
                 trained = dict(fix_loaded_state_dict(trained))
             model.load_state_dict(trained)
             logging.info(f"Loading {checkpoint_path} succeeded.")
-        model.parallelize()
+        if model_parallel:
+            model.parallelize()
         encoder = model.encoder
         decoder = model.decoder
 
