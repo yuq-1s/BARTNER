@@ -10,7 +10,7 @@ Currently, this repo targets T5 for NER. Current results on CoNLL 2003:
 
 ## TODO
 
-- [ ] Add MLP, set it as trainable
+- [x] Add MLP, set it as trainable
 - [x] Debug T5: SequenceGenerator always 0 f1
 - [x] Debug T5: >200 loss on initialization
 - [x] Finetune `t5-base` and achieve comparable performance with `bart-large`

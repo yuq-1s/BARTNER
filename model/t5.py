@@ -48,7 +48,7 @@ class FT5Encoder(Seq2SeqEncoder):
         return encoder_outputs, mask, hidden_states
 
 class FT5Decoder(Seq2SeqDecoder):
-    def __init__(self, decoder, pad_token_id, label_ids):
+    def __init__(self, decoder, pad_token_id, label_ids, use_encoder_mlp):
         super().__init__()
         # assert isinstance(decoder, T5Stack)
         self.decoder = decoder
@@ -58,6 +58,12 @@ class FT5Decoder(Seq2SeqDecoder):
         mapping = torch.LongTensor([EOS_ID]+label_ids) # T5 has no bos; eos is 1
         self.register_buffer('mapping', mapping)
         self.src_start_index = len(mapping)  # 加上一个
+        if use_encoder_mlp:
+            hidden_size = decoder.embed_tokens.weight.size(1)
+            self.encoder_mlp = nn.Sequential(nn.Linear(hidden_size, hidden_size),
+                                             nn.Dropout(0.3),
+                                             nn.ReLU(),
+                                             nn.Linear(hidden_size, hidden_size))
 
         logging.warning("FIXME: This version of T5Decoder forces `first` to be None.")
 
@@ -124,6 +130,9 @@ class FT5Decoder(Seq2SeqDecoder):
             src_outputs = src_outputs.gather(index=first.unsqueeze(2).repeat(1, 1, src_outputs.size(-1)), dim=1)
         else:
             mask = state.encoder_mask.eq(0)
+
+d        if hasattr(self, 'encoder_mlp'):
+            src_outputs = self.encoder_mlp(src_outputs)
 
         # If prompt is added, remove it for decoder
         if src_tokens.shape != mask.shape:
@@ -208,7 +217,7 @@ class T5Seq2SeqModel(Seq2SeqModel):
         else:
             encoder = FT5Encoder(encoder)
         if decoder_type is None:
-            decoder = FT5Decoder(decoder, pad_token_id=tokenizer.pad_token_id, label_ids=label_ids)
+            decoder = FT5Decoder(decoder, pad_token_id=tokenizer.pad_token_id, label_ids=label_ids, use_encoder_mlp=use_encoder_mlp)
         else:
             raise RuntimeError("Unsupported feature.")
 

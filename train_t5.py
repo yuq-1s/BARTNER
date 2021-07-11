@@ -144,7 +144,6 @@ print("The number of tokens in tokenizer ", len(tokenizer.get_vocab()))
 bos_token_id = tokenizer.pad_token_id
 eos_token_id = 0 # This is not `tokenizer.eos_token_id`, but the model.decoder.mapping.index(tokenizer.eos_token_id)
 label_ids = list(mapping2id.values())
-use_encoder_mlp = False
 model = T5Seq2SeqModel.build_model(bart_name, tokenizer, label_ids=label_ids, decoder_type=decoder_type,
                                    use_encoder_mlp=use_encoder_mlp, use_prompt=(args.mode == 'prompt'),
                                 #    checkpoint_path='t5-11b_finetune_decoder_type_none_no_encoder_mlp_normalize_embed/best_SequenceGeneratorModel_f_2021-07-10-10-13-33-882992' if args.mode == 'test' else None
@@ -170,17 +169,17 @@ else:
 if args.mode == 'full_vocab':
     parameters = [{'lr': lr, 'weight_decay': 1e-2, 'params': []}]
     for name, param in model.named_parameters():
-        if name != 'seq2seq_model.encoder.t5_encoder.embed_tokens.weight':
-            param.requires_grad = False
-        else:
+        if name == 'seq2seq_model.encoder.t5_encoder.embed_tokens.weight' or (args.use_encoder_mlp and 'encoder_mlp' in name):
             parameters[0]['params'].append(param)
+        else:
+            param.requires_grad = False
 elif args.mode == 'prompt':
-    parameters = [{'lr': lr, 'weight_decay': 1e-2, 'params': [model.seq2seq_model.encoder.soft_prompt_embed.weight]}]
+    parameters = [{'lr': lr, 'weight_decay': 1e-2, 'params': []}]
     for name, param in model.named_parameters():
-        if name != 'seq2seq_model.encoder.soft_prompt_embed.weight':
-            param.requires_grad = False
-        else:
+        if name == 'seq2seq_model.encoder.soft_prompt_embed.weight' or (args.use_encoder_mlp and 'encoder_mlp' in name):
             parameters[0]['params'].append(param)
+        else:
+            param.requires_grad = False
 elif args.mode == 'finetune':
     parameters = []
     params = {'lr':lr, 'weight_decay':1e-2}
