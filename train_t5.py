@@ -39,17 +39,17 @@ args.save_model = 1
 args.target_type = 'word'
 # args.bart_name = 'facebook/bart-base'
 # args.bart_name = 't5-large'
-args.bart_name = 't5-11b'
+args.bart_name = 't5-large'
 args.schedule = 'linear'
 args.decoder_type = None # 'avg_feature'
 args.n_epochs = 300
 args.num_beams = 1
-args.batch_size = 4
-args.dev_batch_size = 2
+args.batch_size = 32
+args.dev_batch_size = 4
 args.use_encoder_mlp = 1
-args.lr = 1e-2
+args.lr = 1e-3
 args.warmup_ratio = 0.01
-args.mode = 'prompt'
+args.mode = 'adapter'
 eval_start_epoch = 0
 
 # the following hyper-parameters are for target_type=word
@@ -145,7 +145,8 @@ bos_token_id = tokenizer.pad_token_id
 eos_token_id = 0 # This is not `tokenizer.eos_token_id`, but the model.decoder.mapping.index(tokenizer.eos_token_id)
 label_ids = list(mapping2id.values())
 model = T5Seq2SeqModel.build_model(bart_name, tokenizer, label_ids=label_ids, decoder_type=decoder_type,
-                                   use_encoder_mlp=use_encoder_mlp, use_prompt=(args.mode == 'prompt'),
+                                   use_encoder_mlp=use_encoder_mlp, use_prompt=('prompt' in args.mode),
+                                   use_adapter=('adapter' in args.mode),
                                 #    checkpoint_path='t5-11b_finetune_decoder_type_none_no_encoder_mlp_normalize_embed/best_SequenceGeneratorModel_f_2021-07-10-10-13-33-882992' if args.mode == 'test' else None
                                 #    checkpoint_path='t5_base_decoder_type_none_no_encoder_mlp_normalize_embed1/best_SequenceGeneratorModel_f_2021-07-02-12-20-09-872950' if args.mode == 'test' else None,
                                    model_parallel=(bart_name in ['t5-11b', 't5-3b'])
@@ -202,6 +203,20 @@ elif args.mode == 'finetune':
             params['params'].append(param)
     if params['params']:
         parameters.append(params)
+elif args.mode == 'adapter':
+    parameters = [{'lr': lr, 'weight_decay': 1e-2, 'params': []}]
+    for name, param in model.named_parameters():
+        if 'adapter' in name or (args.use_encoder_mlp and 'encoder_mlp' in name):
+            parameters[0]['params'].append(param)
+        else:
+            param.requires_grad = False
+elif args.mode == 'adapter+prompt':
+    parameters = [{'lr': lr, 'weight_decay': 1e-2, 'params': []}]
+    for name, param in model.named_parameters():
+        if name == 'seq2seq_model.encoder.soft_prompt_embed.weight' or 'adapter' in name or (args.use_encoder_mlp and 'encoder_mlp' in name):
+            parameters[0]['params'].append(param)
+        else:
+            param.requires_grad = False
 elif args.mode == 'test':
     pass
 else:

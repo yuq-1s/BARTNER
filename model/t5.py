@@ -7,9 +7,53 @@ import torch.nn.functional as F
 from fastNLP.models import Seq2SeqModel
 from torch import nn
 import logging
+from collections import namedtuple
+from .adapter import Adapter, ADAPTER_SIZE
 
 EOS_ID = 1
 PAD_ID = 0
+
+class AdapterT5Stack(nn.Module):
+    def __init__(self, model, config):
+        super().__init__()
+        self.model = model
+        if type(config) is dict:
+            config = namedtuple(f'{self.__class__.__name__}Args', config.keys())(*config.values())
+        self.adapter_num = len(config.adapter_list)
+        self.adapter_skip_layers = config.adapter_skip_layers
+        self.adapter_list = config.adapter_list
+        for p in model.parameters():
+            p.requires_grad = False
+        self.adapter = nn.ModuleList([Adapter({
+            'project_hidden_size': model.embed_tokens.weight.shape[1],
+            'adapter_size': ADAPTER_SIZE,
+            'num_hidden_layers': 2,
+            'adapter_initializer_range': 0.0002
+        }) for _ in range(self.adapter_num)])
+        self.embed_tokens = self.model.embed_tokens
+
+    def forward(self, *args, **kwargs):
+        kwargs['output_hidden_states'] = True
+        outputs = self.model(*args, **kwargs)
+        sequence_output = outputs['last_hidden_state']
+        hidden_states = outputs['hidden_states']
+        num = len(hidden_states)
+        hidden_states_last = torch.zeros(sequence_output.size()).to(sequence_output.device)
+
+        adapter_hidden_states = []
+        adapter_hidden_states_count = 0
+        for i, adapter_module in enumerate(self.adapter):
+            fusion_state = hidden_states[self.adapter_list[i]] + hidden_states_last
+            hidden_states_last = adapter_module(fusion_state)
+            adapter_hidden_states.append(hidden_states_last)
+            adapter_hidden_states_count += 1
+            if self.adapter_skip_layers >= 1: # if adapter_skip_layers>=1, skip connection
+                if adapter_hidden_states_count % self.adapter_skip_layers == 0:
+                    import pdb; pdb.set_trace()
+                    hidden_states_last = hidden_states_last + adapter_hidden_states[int(adapter_hidden_states_count/self.adapter_skip_layers)]
+        outputs['last_hidden_state'] = hidden_states_last
+        return outputs
+
 
 class PromptFT5Encoder(Seq2SeqEncoder):
     def __init__(self, encoder):
@@ -176,7 +220,7 @@ def fix_loaded_state_dict(trained_state_dict):
 class T5Seq2SeqModel(Seq2SeqModel):
     @classmethod
     def build_model(cls, bart_model, tokenizer, label_ids, decoder_type=None,
-                    use_encoder_mlp=False, use_prompt=False, checkpoint_path=None, model_parallel=False):
+                    use_encoder_mlp=False, use_prompt=False, checkpoint_path=None, model_parallel=False, use_adapter=False):
         model = T5Model.from_pretrained(bart_model, mirror='tuna')
         num_tokens, _ = model.encoder.embed_tokens.weight.shape
         # FIXME: Speed up T5: T5's vocab of 32128 has no need to resize_token_embeddings here
@@ -191,8 +235,13 @@ class T5Seq2SeqModel(Seq2SeqModel):
             logging.info(f"Loading {checkpoint_path} succeeded.")
         if model_parallel:
             model.parallelize()
-        encoder = model.encoder
-        decoder = model.decoder
+        if use_adapter:
+            adapter_config = {'adapter_list': [0, 5, 11], 'adapter_skip_layers': 6}
+            encoder = AdapterT5Stack(model.encoder, adapter_config)
+            decoder = AdapterT5Stack(model.decoder, adapter_config)
+        else:
+            encoder = model.encoder
+            decoder = model.decoder
 
         __normalize = lambda x: (x - x.mean()) / x.std() * 0.4356 - 0.0094
 
