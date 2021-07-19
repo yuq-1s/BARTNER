@@ -39,13 +39,13 @@ args.save_model = 1
 args.target_type = 'word'
 # args.bart_name = 'facebook/bart-base'
 # args.bart_name = 't5-large'
-args.bart_name = 't5-large'
+args.bart_name = 't5-3b'
 args.schedule = 'linear'
 args.decoder_type = None # 'avg_feature'
 args.n_epochs = 300
 args.num_beams = 1
 args.batch_size = 32
-args.dev_batch_size = 4
+args.dev_batch_size = 16
 args.use_encoder_mlp = 1
 args.lr = 1e-3
 args.warmup_ratio = 0.01
@@ -281,7 +281,7 @@ if args.mode == 'test':
     import sys; sys.exit(0)
 
 validate_every = 10000 // args.batch_size
-eval_dataset = eval_dataset[:128]
+eval_dataset = eval_dataset[:512]
 trainer = Trainer(train_data=ds, model=model, optimizer=optimizer,
                   loss=T5Seq2SeqLoss(),
                   batch_size=batch_size, sampler=sampler, drop_last=False, update_every=1,

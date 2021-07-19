@@ -28,8 +28,9 @@ class AdapterT5Stack(nn.Module):
             'project_hidden_size': model.embed_tokens.weight.shape[1],
             'adapter_size': ADAPTER_SIZE,
             'num_hidden_layers': 2,
-            'adapter_initializer_range': 0.0002
-        }) for _ in range(self.adapter_num)])
+            'adapter_initializer_range': 0.0002,
+            'device': next(self.model.block[i].parameters()).device
+        }) for i in self.adapter_list])
         self.embed_tokens = self.model.embed_tokens
 
     def forward(self, *args, **kwargs):
@@ -43,6 +44,7 @@ class AdapterT5Stack(nn.Module):
         adapter_hidden_states = []
         adapter_hidden_states_count = 0
         for i, adapter_module in enumerate(self.adapter):
+            hidden_states_last = hidden_states_last.to(hidden_states[self.adapter_list[i]].device)
             fusion_state = hidden_states[self.adapter_list[i]] + hidden_states_last
             hidden_states_last = adapter_module(fusion_state)
             adapter_hidden_states.append(hidden_states_last)
@@ -236,7 +238,8 @@ class T5Seq2SeqModel(Seq2SeqModel):
         if model_parallel:
             model.parallelize()
         if use_adapter:
-            adapter_config = {'adapter_list': [0, 5, 11], 'adapter_skip_layers': 6}
+            N = len(model.encoder.block)
+            adapter_config = {'adapter_list': [0, N // 2 - 1, N-1], 'adapter_skip_layers': 6}
             encoder = AdapterT5Stack(model.encoder, adapter_config)
             decoder = AdapterT5Stack(model.decoder, adapter_config)
         else:
