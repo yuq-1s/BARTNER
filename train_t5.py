@@ -39,7 +39,7 @@ args.save_model = 1
 args.target_type = 'word'
 # args.bart_name = 'facebook/bart-base'
 # args.bart_name = 't5-large'
-args.bart_name = 't5-3b'
+args.bart_name = 't5-large'
 args.schedule = 'linear'
 args.decoder_type = None # 'avg_feature'
 args.n_epochs = 300
@@ -49,7 +49,8 @@ args.dev_batch_size = 16
 args.use_encoder_mlp = 1
 args.lr = 1e-3
 args.warmup_ratio = 0.01
-args.mode = 'adapter'
+args.mode = 'adapter+prompt'
+args.do_train = True
 eval_start_epoch = 0
 
 # the following hyper-parameters are for target_type=word
@@ -147,6 +148,7 @@ label_ids = list(mapping2id.values())
 model = T5Seq2SeqModel.build_model(bart_name, tokenizer, label_ids=label_ids, decoder_type=decoder_type,
                                    use_encoder_mlp=use_encoder_mlp, use_prompt=('prompt' in args.mode),
                                    use_adapter=('adapter' in args.mode),
+                                #    checkpoint_path='ckpts/t5-large_adapter+prompt_0.001_decoder_type_none_no_encoder_mlp_normalize_embed/latest_SequenceGeneratorModel_f_2021-07-17-23-57-44-082462',
                                 #    checkpoint_path='t5-11b_finetune_decoder_type_none_no_encoder_mlp_normalize_embed/best_SequenceGeneratorModel_f_2021-07-10-10-13-33-882992' if args.mode == 'test' else None
                                 #    checkpoint_path='t5_base_decoder_type_none_no_encoder_mlp_normalize_embed1/best_SequenceGeneratorModel_f_2021-07-02-12-20-09-872950' if args.mode == 'test' else None,
                                    model_parallel=(bart_name in ['t5-11b', 't5-3b'])
@@ -217,11 +219,9 @@ elif args.mode == 'adapter+prompt':
             parameters[0]['params'].append(param)
         else:
             param.requires_grad = False
-elif args.mode == 'test':
-    pass
 else:
-    raise ValueError(f"Unknown mode {mode}")
-if args.mode != 'test':
+    raise ValueError(f"Unknown mode {args.mode}")
+if args.do_train:
     optimizer = optim.AdamW(parameters)
 
 callbacks = []
@@ -271,17 +271,17 @@ if dataset_name == 'conll2003':
     # ds.concat(data_bundle.get_dataset('dev'))
     data_bundle.delete_dataset('dev')
 if save_model == 1:
-    save_path = f'ckpts/{args.bart_name}_{args.mode}_{args.lr}_decoder_type_none_no_encoder_mlp_normalize_embed/'
+    save_path = f'ckpts/{args.bart_name}_{args.mode}_{args.lr}_crossattn_adapter/'
 else:
     save_path = None
 
-if args.mode == 'test':
+if not args.do_train:
     tester = Tester(eval_dataset, model, metrics=metric, device=device, callbacks=callbacks, batch_size=args.dev_batch_size)
     tester.test()
     import sys; sys.exit(0)
 
-validate_every = 10000 // args.batch_size
-eval_dataset = eval_dataset[:512]
+validate_every = 20000 // args.batch_size
+eval_dataset = eval_dataset[:2048]
 trainer = Trainer(train_data=ds, model=model, optimizer=optimizer,
                   loss=T5Seq2SeqLoss(),
                   batch_size=batch_size, sampler=sampler, drop_last=False, update_every=1,

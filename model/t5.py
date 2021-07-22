@@ -29,11 +29,12 @@ class AdapterT5Stack(nn.Module):
             'adapter_size': ADAPTER_SIZE,
             'num_hidden_layers': 2,
             'adapter_initializer_range': 0.0002,
-            'device': next(self.model.block[i].parameters()).device
+            'device': next(self.model.block[i].parameters()).device,
+            'is_decoder': self.model.is_decoder
         }) for i in self.adapter_list])
         self.embed_tokens = self.model.embed_tokens
 
-    def forward(self, *args, **kwargs):
+    def forward(self, encoder_hidden_states=None, *args, **kwargs):
         kwargs['output_hidden_states'] = True
         outputs = self.model(*args, **kwargs)
         sequence_output = outputs['last_hidden_state']
@@ -46,12 +47,11 @@ class AdapterT5Stack(nn.Module):
         for i, adapter_module in enumerate(self.adapter):
             hidden_states_last = hidden_states_last.to(hidden_states[self.adapter_list[i]].device)
             fusion_state = hidden_states[self.adapter_list[i]] + hidden_states_last
-            hidden_states_last = adapter_module(fusion_state)
+            hidden_states_last = adapter_module(fusion_state, encoder_hidden_states=encoder_hidden_states)
             adapter_hidden_states.append(hidden_states_last)
             adapter_hidden_states_count += 1
             if self.adapter_skip_layers >= 1: # if adapter_skip_layers>=1, skip connection
                 if adapter_hidden_states_count % self.adapter_skip_layers == 0:
-                    import pdb; pdb.set_trace()
                     hidden_states_last = hidden_states_last + adapter_hidden_states[int(adapter_hidden_states_count/self.adapter_skip_layers)]
         outputs['last_hidden_state'] = hidden_states_last
         return outputs
@@ -74,7 +74,7 @@ class PromptFT5Encoder(Seq2SeqEncoder):
         embeddings = torch.cat([prompt_embeddings, embeddings], dim=1)
         mask = seq_len_to_mask(src_seq_len+1, max_len=embeddings.size(1))
         dict = self.t5_encoder(inputs_embeds=embeddings, attention_mask=mask, return_dict=True,
-                                 output_hidden_states=True)
+                               output_hidden_states=True)
         encoder_outputs = dict.last_hidden_state
         hidden_states = dict.hidden_states
         return encoder_outputs, mask, hidden_states
@@ -227,16 +227,6 @@ class T5Seq2SeqModel(Seq2SeqModel):
         num_tokens, _ = model.encoder.embed_tokens.weight.shape
         # FIXME: Speed up T5: T5's vocab of 32128 has no need to resize_token_embeddings here
         # model.resize_token_embeddings(len(tokenizer.unique_no_split_tokens)+num_tokens)
-        if checkpoint_path is not None:
-            trained = torch.load(checkpoint_path)
-            if hasattr(trained, 'state_dict'):
-                trained = trained.state_dict()
-            if trained.keys() != model.state_dict().keys():
-                trained = dict(fix_loaded_state_dict(trained))
-            model.load_state_dict(trained)
-            logging.info(f"Loading {checkpoint_path} succeeded.")
-        if model_parallel:
-            model.parallelize()
         if use_adapter:
             N = len(model.encoder.block)
             adapter_config = {'adapter_list': [0, N // 2 - 1, N-1], 'adapter_skip_layers': 6}
@@ -276,7 +266,22 @@ class T5Seq2SeqModel(Seq2SeqModel):
 
         decoder.decoder.embed_tokens.weight.data[decoder.label_end_id] = __normalize(decoder.decoder.embed_tokens.weight.data[EOS_ID])
 
-        return cls(encoder=encoder, decoder=decoder)
+        model = cls(encoder=encoder, decoder=decoder)
+        if checkpoint_path is not None:
+            trained = torch.load(checkpoint_path)
+            if hasattr(trained, 'state_dict'):
+                trained = trained.state_dict()
+            if trained.keys() != model.state_dict().keys():
+                trained = {k[len('seq2seq_model.'):]: v \
+                    for k, v in trained.items()}
+            if trained.keys() != model.state_dict().keys():
+                import pdb; pdb.set_trace()
+                trained = dict(fix_loaded_state_dict(trained))
+            model.load_state_dict(trained)
+            logging.info(f"Loading {checkpoint_path} succeeded.")
+        if model_parallel:
+            model.parallelize()
+        return model
 
     def prepare_state(self, src_tokens, src_seq_len=None, first=None, tgt_seq_len=None):
         encoder_outputs, encoder_mask, hidden_states = self.encoder(src_tokens, src_seq_len)
@@ -313,6 +318,8 @@ class BartState(State):
         self.src_embed_outputs = src_embed_outputs
 
     def reorder_state(self, indices: torch.LongTensor):
+        print("What? This function can be called? I have not tested it yet!")
+        import pdb; pdb.set_trace()
         super().reorder_state(indices)
         self.src_tokens = self._reorder_state(self.src_tokens, indices)
         if self.first is not None:
