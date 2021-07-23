@@ -9,6 +9,7 @@ from torch import nn
 import logging
 from collections import namedtuple
 from .adapter import Adapter, ADAPTER_SIZE
+import random
 
 EOS_ID = 1
 PAD_ID = 0
@@ -22,6 +23,8 @@ class AdapterT5Stack(nn.Module):
         self.adapter_num = len(config.adapter_list)
         self.adapter_skip_layers = config.adapter_skip_layers
         self.adapter_list = config.adapter_list
+        if config.model_parallel:
+            self.parallelize()
         for p in model.parameters():
             p.requires_grad = False
         self.adapter = nn.ModuleList([Adapter({
@@ -33,6 +36,9 @@ class AdapterT5Stack(nn.Module):
             'is_decoder': self.model.is_decoder
         }) for i in self.adapter_list])
         self.embed_tokens = self.model.embed_tokens
+
+    def parallelize(self):
+        self.model.parallelize()
 
     def forward(self, encoder_hidden_states=None, *args, **kwargs):
         kwargs['output_hidden_states'] = True
@@ -79,6 +85,9 @@ class PromptFT5Encoder(Seq2SeqEncoder):
         hidden_states = dict.hidden_states
         return encoder_outputs, mask, hidden_states
 
+    def parallelize(self):
+        self.t5_encoder.parallelize()
+
 class FT5Encoder(Seq2SeqEncoder):
     def __init__(self, encoder):
         super().__init__()
@@ -93,8 +102,11 @@ class FT5Encoder(Seq2SeqEncoder):
         hidden_states = dict.hidden_states
         return encoder_outputs, mask, hidden_states
 
+    def parallelize(self):
+        self.t5_encoder.parallelize()
+
 class FT5Decoder(Seq2SeqDecoder):
-    def __init__(self, decoder, pad_token_id, label_ids, use_encoder_mlp):
+    def __init__(self, decoder, pad_token_id, label_ids, use_encoder_mlp, truncate_decoded=True):
         super().__init__()
         # assert isinstance(decoder, T5Stack)
         self.decoder = decoder
@@ -104,6 +116,7 @@ class FT5Decoder(Seq2SeqDecoder):
         mapping = torch.LongTensor([EOS_ID]+label_ids) # T5 has no bos; eos is 1
         self.register_buffer('mapping', mapping)
         self.src_start_index = len(mapping)  # 加上一个
+        self.truncate_decoded = truncate_decoded
         if use_encoder_mlp:
             hidden_size = decoder.embed_tokens.weight.size(1)
             self.encoder_mlp = nn.Sequential(nn.Linear(hidden_size, hidden_size),
@@ -112,6 +125,9 @@ class FT5Decoder(Seq2SeqDecoder):
                                              nn.Linear(hidden_size, hidden_size))
 
         logging.warning("FIXME: This version of T5Decoder forces `first` to be None.")
+
+    def parallelize(self):
+        self.decoder.parallelize()
 
     def forward(self, tokens, state):
         encoder_outputs = state.encoder_output
@@ -141,6 +157,9 @@ class FT5Decoder(Seq2SeqDecoder):
 
         if self.training:
             tokens = self._shift_right(tokens)
+            if self.truncate_decoded and random.random() < 0.3:
+                T = tokens.size(1)
+                tokens = tokens[:, :random.randint(1, T)]
             dict = self.decoder(input_ids=tokens,
                                 encoder_hidden_states=encoder_outputs,
                                 return_dict=True)
@@ -224,12 +243,14 @@ class T5Seq2SeqModel(Seq2SeqModel):
     def build_model(cls, bart_model, tokenizer, label_ids, decoder_type=None,
                     use_encoder_mlp=False, use_prompt=False, checkpoint_path=None, model_parallel=False, use_adapter=False):
         model = T5Model.from_pretrained(bart_model, mirror='tuna')
+        if model_parallel:
+            model.parallelize()
         num_tokens, _ = model.encoder.embed_tokens.weight.shape
         # FIXME: Speed up T5: T5's vocab of 32128 has no need to resize_token_embeddings here
         # model.resize_token_embeddings(len(tokenizer.unique_no_split_tokens)+num_tokens)
         if use_adapter:
             N = len(model.encoder.block)
-            adapter_config = {'adapter_list': [0, N // 2 - 1, N-1], 'adapter_skip_layers': 6}
+            adapter_config = {'adapter_list': [0, N // 2 - 1, N-1], 'adapter_skip_layers': 6, 'model_parallel': model_parallel}
             encoder = AdapterT5Stack(model.encoder, adapter_config)
             decoder = AdapterT5Stack(model.decoder, adapter_config)
         else:
@@ -279,8 +300,6 @@ class T5Seq2SeqModel(Seq2SeqModel):
                 trained = dict(fix_loaded_state_dict(trained))
             model.load_state_dict(trained)
             logging.info(f"Loading {checkpoint_path} succeeded.")
-        if model_parallel:
-            model.parallelize()
         return model
 
     def prepare_state(self, src_tokens, src_seq_len=None, first=None, tgt_seq_len=None):
@@ -308,6 +327,9 @@ class T5Seq2SeqModel(Seq2SeqModel):
             return {'pred': decoder_output[0]}
         else:
             raise TypeError(f"Unsupported return type from Decoder:{type(self.decoder)}")
+
+    def parallelize(self):
+            model.parallelize()
 
 class BartState(State):
     def __init__(self, encoder_output, encoder_mask, src_tokens, first, src_embed_outputs):

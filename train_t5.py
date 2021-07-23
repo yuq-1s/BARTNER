@@ -39,7 +39,7 @@ args.save_model = 1
 args.target_type = 'word'
 # args.bart_name = 'facebook/bart-base'
 # args.bart_name = 't5-large'
-args.bart_name = 't5-large'
+args.bart_name = 't5-base'
 args.schedule = 'linear'
 args.decoder_type = None # 'avg_feature'
 args.n_epochs = 300
@@ -49,8 +49,10 @@ args.dev_batch_size = 16
 args.use_encoder_mlp = 1
 args.lr = 1e-3
 args.warmup_ratio = 0.01
-args.mode = 'adapter+prompt'
+args.mode = 'adapter'
 args.do_train = True
+args.checkpoint_path = None # 'ckpts/t5-large_adapter+prompt_0.001_crossattn_adapter/latest_SequenceGeneratorModel_f_2021-07-22-23-43-05-525447'
+# args.checkpoint_path = 'ckpts/t5-3b_adapter_0.001_crossattn_adapter/latest_SequenceGeneratorModel_f_2021-07-23-09-50-03-915581'
 eval_start_epoch = 0
 
 # the following hyper-parameters are for target_type=word
@@ -148,6 +150,7 @@ label_ids = list(mapping2id.values())
 model = T5Seq2SeqModel.build_model(bart_name, tokenizer, label_ids=label_ids, decoder_type=decoder_type,
                                    use_encoder_mlp=use_encoder_mlp, use_prompt=('prompt' in args.mode),
                                    use_adapter=('adapter' in args.mode),
+                                   checkpoint_path=args.checkpoint_path,
                                 #    checkpoint_path='ckpts/t5-large_adapter+prompt_0.001_decoder_type_none_no_encoder_mlp_normalize_embed/latest_SequenceGeneratorModel_f_2021-07-17-23-57-44-082462',
                                 #    checkpoint_path='t5-11b_finetune_decoder_type_none_no_encoder_mlp_normalize_embed/best_SequenceGeneratorModel_f_2021-07-10-10-13-33-882992' if args.mode == 'test' else None
                                 #    checkpoint_path='t5_base_decoder_type_none_no_encoder_mlp_normalize_embed1/best_SequenceGeneratorModel_f_2021-07-02-12-20-09-872950' if args.mode == 'test' else None,
@@ -271,7 +274,7 @@ if dataset_name == 'conll2003':
     # ds.concat(data_bundle.get_dataset('dev'))
     data_bundle.delete_dataset('dev')
 if save_model == 1:
-    save_path = f'ckpts/{args.bart_name}_{args.mode}_{args.lr}_crossattn_adapter/'
+    save_path = f'ckpts/{args.bart_name}_{args.mode}_{args.lr}_crossattn_adapter_truncate_decoded/'
 else:
     save_path = None
 
@@ -283,6 +286,7 @@ if not args.do_train:
 validate_every = 20000 // args.batch_size
 eval_dataset = eval_dataset[:2048]
 trainer = Trainer(train_data=ds, model=model, optimizer=optimizer,
+# trainer = Trainer(train_data=eval_dataset, model=model, optimizer=optimizer,
                   loss=T5Seq2SeqLoss(),
                   batch_size=batch_size, sampler=sampler, drop_last=False, update_every=1,
                   num_workers=4, n_epochs=n_epochs, print_every=1 if 'SEARCH_OUTPUT_FP' not in os.environ else 100,
