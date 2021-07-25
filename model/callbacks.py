@@ -225,3 +225,7 @@ class SaveEveryEpochCallback(Callback):
     def on_valid_end(self, eval_result, metric_key, optimizer, is_better_eval):
         trainer = self.trainer
         return trainer._save_model(trainer.model, "latest_" + "_".join([trainer.model.__class__.__name__, trainer.metric_key, trainer.start_time]))
+
+class PrintAvgLossOnEpochEndCallback(Callback):
+    def on_epoch_end(self):
+        print(self.trainer.losser.avg_loss_message)
