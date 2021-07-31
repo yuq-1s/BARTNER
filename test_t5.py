@@ -13,7 +13,7 @@ import fitlog
 
 from fastNLP import Trainer, Tester
 from model.metrics import Seq2SeqSpanMetric
-from model.losses import Seq2SeqLoss, TesingT5Seq2SeqLoss
+from model.losses import Seq2SeqLoss, TestingT5Seq2SeqLoss
 from torch import optim
 from fastNLP import BucketSampler, GradientClipCallback, cache_results
 
@@ -48,7 +48,8 @@ args.target_type = 'word'
 MODEL_TO_CHECKPOINT = {
     't5-base': 'ckpts/t5-base_adapter_0.001_crossattn_adapter_truncate_decoded/%s_SequenceGeneratorModel_f_2021-07-23-13-34-02-172038',
     't5-large': 'ckpts/t5-large_adapter_0.001_crossattn_adapter_truncate_decoded/%s_SequenceGeneratorModel_f_2021-07-23-13-43-26-824845',
-    't5-3b': 'ckpts/t5-3b_adapter_0.001_crossattn_adapter_truncate_decoded/%s_SequenceGeneratorModel_f_2021-07-23-12-38-00-901928'
+    't5-3b': 'ckpts/t5-3b_adapter_0.001_crossattn_adapter_truncate_decoded/%s_SequenceGeneratorModel_f_2021-07-23-12-38-00-901928',
+    't5-11b': 'ckpts/t5-11b_adapter_0.0001_crossattn_adapter_truncate_decoded/%s_SequenceGeneratorModel_f_2021-07-25-15-40-06-230405'
 }
 args.checkpoint_path = MODEL_TO_CHECKPOINT[args.bart_name] % args.use_latest_or_best
 args.schedule = 'linear'
@@ -62,7 +63,7 @@ args.use_encoder_mlp = 1
 args.lr = 0
 args.warmup_ratio = 0.01
 args.mode = 'adapter'
-args.do_train = True
+args.do_train = False
 eval_start_epoch = 0
 
 # the following hyper-parameters are for target_type=word
@@ -301,8 +302,9 @@ if args.dataset_mode == 'train':
 else:
     dataset = eval_dataset
 validate_every = len(dataset) // args.batch_size
+print(f"#param = {sum(p.numel() for p in model.parameters())}")
 trainer = Trainer(train_data=dataset, model=model, optimizer=optimizer,
-                loss=TesingT5Seq2SeqLoss(),
+                loss=TestingT5Seq2SeqLoss(),
                 batch_size=batch_size, sampler=sampler, drop_last=False, update_every=1,
                 num_workers=4, n_epochs=n_epochs, print_every=1 if 'SEARCH_OUTPUT_FP' not in os.environ else 100,
                 dev_data=dataset, metrics=metric, metric_key='f',

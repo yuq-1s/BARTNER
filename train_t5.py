@@ -39,7 +39,7 @@ args.save_model = 1
 args.target_type = 'word'
 # args.bart_name = 'facebook/bart-base'
 # args.bart_name = 't5-large'
-args.bart_name = 't5-base'
+args.bart_name = 't5-11b'
 args.schedule = 'linear'
 args.decoder_type = None # 'avg_feature'
 args.n_epochs = 300
@@ -47,12 +47,11 @@ args.num_beams = 1
 args.batch_size = 32
 args.dev_batch_size = 16
 args.use_encoder_mlp = 1
-args.lr = 1e-3
+args.lr = 1e-4
 args.warmup_ratio = 0.01
 args.mode = 'adapter'
 args.do_train = True
-args.checkpoint_path = None # 'ckpts/t5-large_adapter+prompt_0.001_crossattn_adapter/latest_SequenceGeneratorModel_f_2021-07-22-23-43-05-525447'
-# args.checkpoint_path = 'ckpts/t5-3b_adapter_0.001_crossattn_adapter/latest_SequenceGeneratorModel_f_2021-07-23-09-50-03-915581'
+args.checkpoint_path = None # 'ckpts/t5-large_adapter_0.001_crossattn_adapter_truncate_decoded/latest_SequenceGeneratorModel_f_2021-07-23-13-43-26-824845'
 eval_start_epoch = 0
 
 # the following hyper-parameters are for target_type=word
@@ -228,7 +227,7 @@ if args.do_train:
     optimizer = optim.AdamW(parameters)
 
 callbacks = []
-callbacks.append(GradientClipCallback(clip_value=5, clip_type='value'))
+callbacks.append(GradientClipCallback(clip_value=1, clip_type='value'))
 callbacks.append(WarmupCallback(warmup=args.warmup_ratio, schedule=schedule))
 callbacks.append(SaveEveryEpochCallback())
 
@@ -285,6 +284,7 @@ if not args.do_train:
 
 validate_every = 20000 // args.batch_size
 eval_dataset = eval_dataset[:2048]
+print(f"#param = {sum(p.numel() for p in model.parameters())}")
 trainer = Trainer(train_data=ds, model=model, optimizer=optimizer,
 # trainer = Trainer(train_data=eval_dataset, model=model, optimizer=optimizer,
                   loss=T5Seq2SeqLoss(),

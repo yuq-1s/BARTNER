@@ -157,7 +157,7 @@ class FT5Decoder(Seq2SeqDecoder):
 
         if self.training:
             tokens = self._shift_right(tokens)
-            if self.truncate_decoded and random.random() < 0.3:
+            if self.truncate_decoded and random.random() < 0.05:
                 T = tokens.size(1)
                 tokens = tokens[:, :random.randint(1, T)]
             dict = self.decoder(input_ids=tokens,
@@ -250,7 +250,7 @@ class T5Seq2SeqModel(Seq2SeqModel):
         # model.resize_token_embeddings(len(tokenizer.unique_no_split_tokens)+num_tokens)
         if use_adapter:
             N = len(model.encoder.block)
-            adapter_config = {'adapter_list': [0, N // 2 - 1, N-1], 'adapter_skip_layers': 6, 'model_parallel': model_parallel}
+            adapter_config = {'adapter_list': [0, N // 3 - 1, N // 3 * 2 - 1, N-1], 'adapter_skip_layers': 6, 'model_parallel': model_parallel}
             encoder = AdapterT5Stack(model.encoder, adapter_config)
             decoder = AdapterT5Stack(model.decoder, adapter_config)
         else:
