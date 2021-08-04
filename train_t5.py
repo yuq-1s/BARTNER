@@ -39,7 +39,7 @@ args.save_model = 1
 args.target_type = 'word'
 # args.bart_name = 'facebook/bart-base'
 # args.bart_name = 't5-large'
-args.bart_name = 't5-base'
+args.bart_name = 't5-large'
 args.schedule = 'linear'
 args.decoder_type = None # 'avg_feature'
 args.n_epochs = 300
@@ -49,7 +49,7 @@ if args.bart_name == 't5-base':
     args.batch_size = 64
     args.dev_batch_size = 64
 elif args.bart_name == 't5-large':
-    args.adapter_size = 192*2
+    args.adapter_size = 192
     args.batch_size = 32
     args.dev_batch_size = 32
 elif args.bart_name == 't5-3b':
@@ -224,7 +224,8 @@ elif args.mode == 'finetune':
 elif args.mode == 'adapter':
     parameters = [{'lr': lr, 'weight_decay': 1e-2, 'params': []}]
     for name, param in model.named_parameters():
-        if 'adapter' in name or (args.use_encoder_mlp and 'encoder_mlp' in name):
+        if 'adapter' in name or (args.use_encoder_mlp and 'encoder_mlp' in name) or \
+            ('layernorm' in name or 'layer_norm' in name):
             parameters[0]['params'].append(param)
         else:
             param.requires_grad = False
