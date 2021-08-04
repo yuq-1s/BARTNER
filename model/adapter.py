@@ -123,13 +123,13 @@ class AdapterModel(nn.Module):
                 project_hidden_size,
                 adapter_size,
             ),
-            nn.Dropout(0.1),
-            nn.GELU(),
-            nn.Linear(
-                adapter_size,
-                adapter_size,
-            ),
-            nn.Dropout(0.1),
+            # nn.Dropout(0.1),
+            # nn.GELU(),
+            # nn.Linear(
+            #     adapter_size,
+            #     adapter_size,
+            # ),
+            # nn.Dropout(0.1),
             nn.GELU(),
             nn.Linear(
                 adapter_size,
@@ -140,24 +140,23 @@ class AdapterModel(nn.Module):
         if model_parallel:
             device = next(self.model.parameters()).device
             self.adapter = self.adapter.to(device)
-            self.adapter_layernorm = self.layernorm.to(device)
+            self.adapter_layernorm = self.adapter_layernorm.to(device)
 
     def forward(self, *args, **kwargs):
         output = self.model(*args, **kwargs)
-        if type(output) is tuple:
-            x = output[0]
-            x = x + self.adapter(x)
-            x = self.adapter_layernorm(x)
-            return (x, *output[1:])
-        else:
-            return output
+        x = output[0] if type(output) is tuple else output
+        x = x + self.adapter(x)
+        x = self.adapter_layernorm(x)
+        return (x, *output[1:]) if type(output) is tuple else x
 
 class AdapterT5Block(nn.Module):
     def __init__(self, block, project_hidden_size, adapter_size, model_parallel, has_relative_attention_bias=False):
         super().__init__()
         self.is_decoder = block.is_decoder
-        for i, layer in enumerate(block.layer):
-            block.layer[i] = AdapterModel(layer, project_hidden_size, adapter_size, model_parallel)
+        # for i, layer in enumerate(block.layer):
+        #     block.layer[i] = AdapterModel(layer, project_hidden_size, adapter_size, model_parallel)
+        block.layer[-1] = AdapterModel(block.layer[-1], project_hidden_size, adapter_size, model_parallel)
+        # block.layer[0] = AdapterModel(block.layer[0], project_hidden_size, adapter_size, model_parallel)
         self.block = block
 
     def forward(self, *args, **kwargs):

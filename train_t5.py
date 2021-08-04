@@ -44,15 +44,28 @@ args.schedule = 'linear'
 args.decoder_type = None # 'avg_feature'
 args.n_epochs = 300
 args.num_beams = 1
-args.batch_size = 32
-args.dev_batch_size = 64
+if args.bart_name == 't5-base':
+    args.adapter_size = 192
+    args.batch_size = 64
+    args.dev_batch_size = 64
+elif args.bart_name == 't5-large':
+    args.adapter_size = 192*2
+    args.batch_size = 32
+    args.dev_batch_size = 32
+elif args.bart_name == 't5-3b':
+    args.adapter_size = 192*8
+    args.batch_size = 16
+    args.dev_batch_size = 16
+elif args.bart_name == 't5-11b':
+    args.adapter_size = 192*16
+    args.batch_size = 16
+    args.dev_batch_size = 16
 args.use_encoder_mlp = 1
-args.lr = 1e-3
+args.lr = 3e-3
 args.warmup_ratio = 0.01
 args.mode = 'adapter'
 args.do_train = True
 args.checkpoint_path = None # 'ckpts/t5-large_adapter_0.001_crossattn_adapter_truncate_decoded/latest_SequenceGeneratorModel_f_2021-07-23-13-43-26-824845'
-args.adapter_size = 64
 eval_start_epoch = 0
 
 # the following hyper-parameters are for target_type=word
@@ -226,12 +239,15 @@ else:
     raise ValueError(f"Unknown mode {args.mode}")
 
 def trainable_names(model, parameters):
+    names, num_param = [], 0
     for name, param in model.named_parameters():
         if any(param is p for p in parameters[0]['params']):
-            yield name
+            names.append(name)
+            num_param += param.numel()
+    return names, num_param
 
-trainable_param_names = list(trainable_names(model, parameters))
-print(f"Trainable parameters: {len(trainable_param_names)}")
+trainable_param_names, num_param = list(trainable_names(model, parameters))
+print(f"Trainable parameters: {len(trainable_param_names), num_param}")
 
 if args.do_train:
     optimizer = optim.AdamW(parameters)
@@ -239,7 +255,15 @@ if args.do_train:
 callbacks = []
 callbacks.append(GradientClipCallback(clip_value=1, clip_type='value'))
 callbacks.append(WarmupCallback(warmup=args.warmup_ratio, schedule=schedule))
-callbacks.append(SaveEveryEpochCallback())
+# callbacks.append(SaveEveryEpochCallback())
+
+from fastNLP.core.callback import Callback
+class DebugCallback(Callback):
+    def on_backward_begin(self, loss):
+        if loss.item() < 3:
+            import pdb; pdb.set_trace()
+
+# callbacks.append(DebugCallback())
 
 if dataset_name not in ('conll2003', 'genia'):
     callbacks.append(FitlogCallback(data_bundle.get_dataset('test'), raise_threshold=-1, # 0.04,
@@ -283,7 +307,7 @@ if dataset_name == 'conll2003':
     # ds.concat(data_bundle.get_dataset('dev'))
     data_bundle.delete_dataset('dev')
 if save_model == 1:
-    save_path = f'ckpts/{args.bart_name}_{args.mode}_{args.lr}_{args.adapter_size}_var_inside_block/'
+    save_path = f'ckpts/{args.bart_name}_{args.mode}_{args.lr}_{args.adapter_size}_no_dup_layernorm/'
 else:
     save_path = None
 
