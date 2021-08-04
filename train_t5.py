@@ -39,7 +39,7 @@ args.save_model = 1
 args.target_type = 'word'
 # args.bart_name = 'facebook/bart-base'
 # args.bart_name = 't5-large'
-args.bart_name = 't5-11b'
+args.bart_name = 't5-large'
 args.schedule = 'linear'
 args.decoder_type = None # 'avg_feature'
 args.n_epochs = 300
@@ -47,7 +47,7 @@ args.num_beams = 1
 args.batch_size = 32
 args.dev_batch_size = 16
 args.use_encoder_mlp = 1
-args.lr = 1e-4
+args.lr = 1e-3
 args.warmup_ratio = 0.01
 args.mode = 'adapter'
 args.do_train = True
@@ -273,7 +273,7 @@ if dataset_name == 'conll2003':
     # ds.concat(data_bundle.get_dataset('dev'))
     data_bundle.delete_dataset('dev')
 if save_model == 1:
-    save_path = f'ckpts/{args.bart_name}_{args.mode}_{args.lr}_crossattn_adapter_truncate_decoded/'
+    save_path = f'ckpts/{args.bart_name}_{args.mode}_{args.lr}_var_interlayer/'
 else:
     save_path = None
 

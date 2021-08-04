@@ -8,11 +8,30 @@ from fastNLP.models import Seq2SeqModel
 from torch import nn
 import logging
 from collections import namedtuple
-from .adapter import Adapter, ADAPTER_SIZE
+from .adapter import Adapter, ADAPTER_SIZE, AdapterT5Block
 import random
 
 EOS_ID = 1
 PAD_ID = 0
+
+class MyAdapterT5Stack(nn.Module):
+    def __init__(self, model, adapter_list, model_parallel):
+        super().__init__()
+        self.model = model
+        for p in model.parameters():
+            p.requires_grad = False
+        for i, block in enumerate(self.model.block):
+            if i in adapter_list:
+                self.model.block[i] = AdapterT5Block(
+                    block,
+                    project_hidden_size=model.embed_tokens.weight.shape[1],
+                    adapter_size=ADAPTER_SIZE,
+                    model_parallel=model_parallel,
+                )
+        self.embed_tokens = self.model.embed_tokens
+
+    def forward(self, *args, **kwargs):
+        return self.model(*args, **kwargs)
 
 class AdapterT5Stack(nn.Module):
     def __init__(self, model, config):
@@ -250,9 +269,9 @@ class T5Seq2SeqModel(Seq2SeqModel):
         # model.resize_token_embeddings(len(tokenizer.unique_no_split_tokens)+num_tokens)
         if use_adapter:
             N = len(model.encoder.block)
-            adapter_config = {'adapter_list': [0, N // 3 - 1, N // 3 * 2 - 1, N-1], 'adapter_skip_layers': 6, 'model_parallel': model_parallel}
-            encoder = AdapterT5Stack(model.encoder, adapter_config)
-            decoder = AdapterT5Stack(model.decoder, adapter_config)
+            adapter_list = [0, N // 3 - 1, N // 3 * 2 - 1, N-1]
+            encoder = MyAdapterT5Stack(model.encoder, adapter_list, model_parallel)
+            decoder = MyAdapterT5Stack(model.decoder, adapter_list, model_parallel)
         else:
             encoder = model.encoder
             decoder = model.decoder

@@ -49,7 +49,8 @@ MODEL_TO_CHECKPOINT = {
     't5-base': 'ckpts/t5-base_adapter_0.001_crossattn_adapter_truncate_decoded/%s_SequenceGeneratorModel_f_2021-07-23-13-34-02-172038',
     't5-large': 'ckpts/t5-large_adapter_0.001_crossattn_adapter_truncate_decoded/%s_SequenceGeneratorModel_f_2021-07-23-13-43-26-824845',
     't5-3b': 'ckpts/t5-3b_adapter_0.001_crossattn_adapter_truncate_decoded/%s_SequenceGeneratorModel_f_2021-07-23-12-38-00-901928',
-    't5-11b': 'ckpts/t5-11b_adapter_0.0001_crossattn_adapter_truncate_decoded/%s_SequenceGeneratorModel_f_2021-07-25-15-40-06-230405'
+    't5-11b': 'ckpts/t5-11b_adapter_0.0001_crossattn_adapter_truncate_decoded/%s_SequenceGeneratorModel_f_2021-07-28-17-53-53-886339'
+    # 't5-11b': 'ckpts/t5-11b_adapter_0.0001_crossattn_adapter_truncate_decoded/%s_SequenceGeneratorModel_f_2021-07-25-15-40-06-230405'
 }
 args.checkpoint_path = MODEL_TO_CHECKPOINT[args.bart_name] % args.use_latest_or_best
 args.schedule = 'linear'
