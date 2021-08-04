@@ -39,19 +39,20 @@ args.save_model = 1
 args.target_type = 'word'
 # args.bart_name = 'facebook/bart-base'
 # args.bart_name = 't5-large'
-args.bart_name = 't5-large'
+args.bart_name = 't5-base'
 args.schedule = 'linear'
 args.decoder_type = None # 'avg_feature'
 args.n_epochs = 300
 args.num_beams = 1
 args.batch_size = 32
-args.dev_batch_size = 16
+args.dev_batch_size = 64
 args.use_encoder_mlp = 1
 args.lr = 1e-3
 args.warmup_ratio = 0.01
 args.mode = 'adapter'
 args.do_train = True
 args.checkpoint_path = None # 'ckpts/t5-large_adapter_0.001_crossattn_adapter_truncate_decoded/latest_SequenceGeneratorModel_f_2021-07-23-13-43-26-824845'
+args.adapter_size = 64
 eval_start_epoch = 0
 
 # the following hyper-parameters are for target_type=word
@@ -153,7 +154,8 @@ model = T5Seq2SeqModel.build_model(bart_name, tokenizer, label_ids=label_ids, de
                                 #    checkpoint_path='ckpts/t5-large_adapter+prompt_0.001_decoder_type_none_no_encoder_mlp_normalize_embed/latest_SequenceGeneratorModel_f_2021-07-17-23-57-44-082462',
                                 #    checkpoint_path='t5-11b_finetune_decoder_type_none_no_encoder_mlp_normalize_embed/best_SequenceGeneratorModel_f_2021-07-10-10-13-33-882992' if args.mode == 'test' else None
                                 #    checkpoint_path='t5_base_decoder_type_none_no_encoder_mlp_normalize_embed1/best_SequenceGeneratorModel_f_2021-07-02-12-20-09-872950' if args.mode == 'test' else None,
-                                   model_parallel=(bart_name in ['t5-11b', 't5-3b'])
+                                   model_parallel=(bart_name in ['t5-11b', 't5-3b']),
+                                   adapter_size=args.adapter_size,
 )
 
 vocab_size = len(tokenizer)
@@ -169,7 +171,6 @@ if torch.cuda.is_available():
     device = 'cuda'
 else:
     device = 'cpu'
-
 
 if args.mode == 'full_vocab':
     parameters = [{'lr': lr, 'weight_decay': 1e-2, 'params': []}]
@@ -223,6 +224,15 @@ elif args.mode == 'adapter+prompt':
             param.requires_grad = False
 else:
     raise ValueError(f"Unknown mode {args.mode}")
+
+def trainable_names(model, parameters):
+    for name, param in model.named_parameters():
+        if any(param is p for p in parameters[0]['params']):
+            yield name
+
+trainable_param_names = list(trainable_names(model, parameters))
+print(f"Trainable parameters: {len(trainable_param_names)}")
+
 if args.do_train:
     optimizer = optim.AdamW(parameters)
 
@@ -273,7 +283,7 @@ if dataset_name == 'conll2003':
     # ds.concat(data_bundle.get_dataset('dev'))
     data_bundle.delete_dataset('dev')
 if save_model == 1:
-    save_path = f'ckpts/{args.bart_name}_{args.mode}_{args.lr}_var_interlayer/'
+    save_path = f'ckpts/{args.bart_name}_{args.mode}_{args.lr}_{args.adapter_size}_var_inside_block/'
 else:
     save_path = None
 
@@ -282,7 +292,7 @@ if not args.do_train:
     tester.test()
     import sys; sys.exit(0)
 
-validate_every = 20000 // args.batch_size
+validate_every = 40000 // args.batch_size
 eval_dataset = eval_dataset[:2048]
 print(f"#param = {sum(p.numel() for p in model.parameters())}")
 trainer = Trainer(train_data=ds, model=model, optimizer=optimizer,

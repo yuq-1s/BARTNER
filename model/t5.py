@@ -8,14 +8,14 @@ from fastNLP.models import Seq2SeqModel
 from torch import nn
 import logging
 from collections import namedtuple
-from .adapter import Adapter, ADAPTER_SIZE, AdapterT5Block
+from .adapter import Adapter, AdapterT5Block
 import random
 
 EOS_ID = 1
 PAD_ID = 0
 
 class MyAdapterT5Stack(nn.Module):
-    def __init__(self, model, adapter_list, model_parallel):
+    def __init__(self, model, adapter_list, model_parallel, adapter_size):
         super().__init__()
         self.model = model
         for p in model.parameters():
@@ -25,7 +25,7 @@ class MyAdapterT5Stack(nn.Module):
                 self.model.block[i] = AdapterT5Block(
                     block,
                     project_hidden_size=model.embed_tokens.weight.shape[1],
-                    adapter_size=ADAPTER_SIZE,
+                    adapter_size=adapter_size,
                     model_parallel=model_parallel,
                 )
         self.embed_tokens = self.model.embed_tokens
@@ -34,21 +34,19 @@ class MyAdapterT5Stack(nn.Module):
         return self.model(*args, **kwargs)
 
 class AdapterT5Stack(nn.Module):
-    def __init__(self, model, config):
+    def __init__(self, model, adapter_list, model_parallel, adapter_size):
         super().__init__()
         self.model = model
-        if type(config) is dict:
-            config = namedtuple(f'{self.__class__.__name__}Args', config.keys())(*config.values())
-        self.adapter_num = len(config.adapter_list)
-        self.adapter_skip_layers = config.adapter_skip_layers
-        self.adapter_list = config.adapter_list
-        if config.model_parallel:
+        self.adapter_num = len(adapter_list)
+        self.adapter_skip_layers = 6
+        self.adapter_list = adapter_list
+        if model_parallel:
             self.parallelize()
         for p in model.parameters():
             p.requires_grad = False
         self.adapter = nn.ModuleList([Adapter({
             'project_hidden_size': model.embed_tokens.weight.shape[1],
-            'adapter_size': ADAPTER_SIZE,
+            'adapter_size': adapter_size,
             'num_hidden_layers': 2,
             'adapter_initializer_range': 0.0002,
             'device': next(self.model.block[i].parameters()).device,
@@ -260,7 +258,8 @@ def fix_loaded_state_dict(trained_state_dict):
 class T5Seq2SeqModel(Seq2SeqModel):
     @classmethod
     def build_model(cls, bart_model, tokenizer, label_ids, decoder_type=None,
-                    use_encoder_mlp=False, use_prompt=False, checkpoint_path=None, model_parallel=False, use_adapter=False):
+                    use_encoder_mlp=False, use_prompt=False, checkpoint_path=None,
+                    model_parallel=False, use_adapter=False, adapter_size=-1):
         model = T5Model.from_pretrained(bart_model, mirror='tuna')
         if model_parallel:
             model.parallelize()
@@ -270,8 +269,8 @@ class T5Seq2SeqModel(Seq2SeqModel):
         if use_adapter:
             N = len(model.encoder.block)
             adapter_list = [0, N // 3 - 1, N // 3 * 2 - 1, N-1]
-            encoder = MyAdapterT5Stack(model.encoder, adapter_list, model_parallel)
-            decoder = MyAdapterT5Stack(model.decoder, adapter_list, model_parallel)
+            encoder = MyAdapterT5Stack(model.encoder, adapter_list, model_parallel, adapter_size)
+            decoder = MyAdapterT5Stack(model.decoder, adapter_list, model_parallel, adapter_size)
         else:
             encoder = model.encoder
             decoder = model.decoder
