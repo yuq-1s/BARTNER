@@ -157,10 +157,13 @@ class AdapterT5Block(nn.Module):
     def __init__(self, block, project_hidden_size, adapter_size, model_parallel, has_relative_attention_bias=False):
         super().__init__()
         self.is_decoder = block.is_decoder
-        for i, layer in enumerate(block.layer[:-1]):
-            block.layer[i] = AdapterModel(layer, project_hidden_size, adapter_size, model_parallel)
-        block.layer[-1] = AdapterModel(block.layer[-1], project_hidden_size, adapter_size,
-            model_parallel, need_norm=True)
+        block.layer[0].SelfAttention = AdapterModel(
+            block.layer[0].SelfAttention, project_hidden_size, adapter_size, model_parallel)
+        block.layer[-1].DenseReluDense = AdapterModel(
+            block.layer[-1].DenseReluDense, project_hidden_size, adapter_size, model_parallel)
+        if self.is_decoder:
+            block.layer[1].EncDecAttention = AdapterModel(
+                block.layer[1].EncDecAttention, project_hidden_size, adapter_size, model_parallel)
         # block.layer[0] = AdapterModel(block.layer[0], project_hidden_size, adapter_size, model_parallel)
         self.block = block
 

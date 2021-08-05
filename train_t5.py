@@ -39,7 +39,7 @@ args.save_model = 1
 args.target_type = 'word'
 # args.bart_name = 'facebook/bart-base'
 # args.bart_name = 't5-large'
-args.bart_name = 't5-large'
+args.bart_name = 't5-11b'
 args.schedule = 'linear'
 args.decoder_type = None # 'avg_feature'
 args.n_epochs = 300
@@ -49,17 +49,17 @@ if args.bart_name == 't5-base':
     args.batch_size = 64
     args.dev_batch_size = 64
 elif args.bart_name == 't5-large':
-    args.adapter_size = 192
-    args.batch_size = 32
-    args.dev_batch_size = 32
+    args.adapter_size = 192*4
+    args.batch_size = 24
+    args.dev_batch_size = 24
 elif args.bart_name == 't5-3b':
-    args.adapter_size = 192*8
+    args.adapter_size = 192*4
     args.batch_size = 16
     args.dev_batch_size = 16
 elif args.bart_name == 't5-11b':
-    args.adapter_size = 192*16
-    args.batch_size = 16
-    args.dev_batch_size = 16
+    args.adapter_size = 192*4
+    args.batch_size = 4
+    args.dev_batch_size = 4
 args.use_encoder_mlp = 1
 args.lr = 3e-3
 args.warmup_ratio = 0.01
@@ -254,7 +254,7 @@ if args.do_train:
     optimizer = optim.AdamW(parameters)
 
 callbacks = []
-callbacks.append(GradientClipCallback(clip_value=1, clip_type='value'))
+callbacks.append(GradientClipCallback(clip_value=0.1, clip_type='value'))
 callbacks.append(WarmupCallback(warmup=args.warmup_ratio, schedule=schedule))
 # callbacks.append(SaveEveryEpochCallback())
 
