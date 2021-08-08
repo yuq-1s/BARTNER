@@ -49,7 +49,7 @@ if args.bart_name == 't5-base':
     args.batch_size = 64
     args.dev_batch_size = 64
 elif args.bart_name == 't5-large':
-    args.adapter_size = 192*4
+    args.adapter_size = 192*2
     args.batch_size = 24
     args.dev_batch_size = 24
 elif args.bart_name == 't5-3b':
@@ -58,10 +58,10 @@ elif args.bart_name == 't5-3b':
     args.dev_batch_size = 16
 elif args.bart_name == 't5-11b':
     args.adapter_size = 192*4
-    args.batch_size = 4
-    args.dev_batch_size = 4
+    args.batch_size = 6
+    args.dev_batch_size = 6
 args.use_encoder_mlp = 1
-args.lr = 3e-3
+args.lr = 2e-4
 args.warmup_ratio = 0.01
 args.mode = 'adapter'
 args.do_train = True
