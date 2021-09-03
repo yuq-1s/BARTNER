@@ -18,17 +18,17 @@ class MyAdapterT5Stack(nn.Module):
     def __init__(self, model, adapter_list, model_parallel, adapter_size):
         super().__init__()
         self.model = model
-        for p in model.parameters():
+        for p in self.model.t5_encoder.parameters():
             p.requires_grad = False
-        for i, block in enumerate(self.model.block):
+        for i, block in enumerate(self.model.t5_encoder.block):
             if i in adapter_list:
-                self.model.block[i] = AdapterT5Block(
+                self.model.t5_encoder.block[i] = AdapterT5Block(
                     block,
-                    project_hidden_size=model.embed_tokens.weight.shape[1],
+                    project_hidden_size=self.model.t5_encoder.embed_tokens.weight.shape[1],
                     adapter_size=adapter_size,
                     model_parallel=model_parallel,
                 )
-        self.embed_tokens = self.model.embed_tokens
+        self.embed_tokens = self.model.t5_encoder.embed_tokens
 
     def forward(self, *args, **kwargs):
         return self.model(*args, **kwargs)
@@ -79,31 +79,58 @@ class AdapterT5Stack(nn.Module):
         outputs['last_hidden_state'] = hidden_states_last
         return outputs
 
+class DummyFT5Decoder(Seq2SeqDecoder):
+    def __init__(self, decoder):
+        super().__init__()
+        # FIXME: variable name t5_encoder is for compatibility, change it later.
+        self.t5_encoder = decoder
+
+    def forward(self, *args, **kwargs):
+        return self.t5_encoder(*args, **kwargs)
 
 class PromptFT5Encoder(Seq2SeqEncoder):
-    def __init__(self, encoder):
+    def __init__(self, encoder, n):
         super().__init__()
+        assert n <= 100, "T5 extract tokens must <= 100"
+        self.n = n
         # assert isinstance(encoder, T5Stack)
         self.t5_encoder = encoder
         original_embed = encoder.embed_tokens.weight
-        self.soft_prompt_embed = nn.Embedding(1, original_embed.size(1))
-        self.soft_prompt_embed.weight.data = encoder.embed_tokens.weight[32127].clone().detach().to(original_embed.device)
+        self.soft_prompt_embed = nn.Embedding(n, original_embed.size(1))
+        self.soft_prompt_embed.weight.data = encoder.embed_tokens.weight[32127:32127+n].clone().detach().to(original_embed.device)
         self.soft_prompt_embed.requires_grad_(True)
         # self.register_buffer('soft_prompt_embed', soft_prompt_embed)
 
     def forward(self, src_tokens, src_seq_len):
         embeddings = self.t5_encoder.embed_tokens(src_tokens)
-        prompt_embeddings = self.soft_prompt_embed.weight.repeat((src_tokens.size(0), 1, 1))
+        prompt_embeddings = self.soft_prompt_embed.weight.repeat((src_tokens.size(0), self.n, 1))
         embeddings = torch.cat([prompt_embeddings, embeddings], dim=1)
-        mask = seq_len_to_mask(src_seq_len+1, max_len=embeddings.size(1))
+        mask = seq_len_to_mask(src_seq_len+self.n, max_len=embeddings.size(1))
         dict = self.t5_encoder(inputs_embeds=embeddings, attention_mask=mask, return_dict=True,
                                output_hidden_states=True)
-        encoder_outputs = dict.last_hidden_state
-        hidden_states = dict.hidden_states
-        return encoder_outputs, mask, hidden_states
+        encoder_outputs = dict.last_hidden_state[:, self.n:, :]
+        hidden_states = tuple(x[:, self.n:, :] for x in dict.hidden_states)
+        return encoder_outputs, mask[:, self.n:], hidden_states
 
     def parallelize(self):
         self.t5_encoder.parallelize()
+
+class PromptFT5Decoder(PromptFT5Encoder):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.embed_tokens = self.t5_encoder.embed_tokens
+
+    def forward(self, input_ids, *args, **kwargs):
+        embeddings = self.t5_encoder.embed_tokens(input_ids)
+        prompt_embeddings = self.soft_prompt_embed.weight.repeat((input_ids.size(0), self.n, 1))
+        embeddings = torch.cat([prompt_embeddings, embeddings], dim=1)
+        # FIXME: Need this line?
+        # mask = seq_len_to_mask(src_seq_len+self.n, max_len=embeddings.size(1))
+        dict = self.t5_encoder(inputs_embeds=embeddings, *args, **kwargs)
+        if dict.hidden_states:
+            dict.hidden_states = tuple(x[:, self.n:, :] for x in dict.hidden_states)
+        dict.last_hidden_state = dict.last_hidden_state[:, self.n:, :]
+        return dict
 
 class FT5Encoder(Seq2SeqEncoder):
     def __init__(self, encoder):
@@ -258,22 +285,30 @@ def fix_loaded_state_dict(trained_state_dict):
 class T5Seq2SeqModel(Seq2SeqModel):
     @classmethod
     def build_model(cls, bart_model, tokenizer, label_ids, decoder_type=None,
-                    use_encoder_mlp=False, use_prompt=False, checkpoint_path=None,
+                    use_encoder_mlp=False, num_prompt_tokens=False, checkpoint_path=None,
                     model_parallel=False, use_adapter=False, adapter_size=-1):
         model = T5Model.from_pretrained(bart_model, mirror='tuna')
         if model_parallel:
             model.parallelize()
-        num_tokens, _ = model.encoder.embed_tokens.weight.shape
+
+        if num_prompt_tokens > 0:
+            encoder = PromptFT5Encoder(model.encoder, n=num_prompt_tokens)
+            decoder = PromptFT5Decoder(model.decoder, n=num_prompt_tokens)
+        else:
+            encoder = FT5Encoder(model.encoder)
+            decoder = DummyFT5Decoder(model.decoder)
+        enc = encoder.t5_encoder
+        num_tokens, _ = enc.embed_tokens.weight.shape
         # FIXME: Speed up T5: T5's vocab of 32128 has no need to resize_token_embeddings here
         # model.resize_token_embeddings(len(tokenizer.unique_no_split_tokens)+num_tokens)
         if use_adapter:
-            N = len(model.encoder.block)
+            N = len(enc.block)
             adapter_list = [0, N // 3 - 1, N // 3 * 2 - 1, N-1]
-            encoder = MyAdapterT5Stack(model.encoder, adapter_list, model_parallel, adapter_size)
-            decoder = MyAdapterT5Stack(model.decoder, adapter_list, model_parallel, adapter_size)
+            encoder = MyAdapterT5Stack(encoder, adapter_list, model_parallel, adapter_size)
+            decoder = MyAdapterT5Stack(decoder, adapter_list, model_parallel, adapter_size)
         else:
-            encoder = model.encoder
-            decoder = model.decoder
+            encoder = encoder
+            decoder = decoder
 
         __normalize = lambda x: (x - x.mean()) / x.std() * 0.4356 - 0.0094
 
@@ -288,16 +323,11 @@ class T5Seq2SeqModel(Seq2SeqModel):
                 if not index>=num_tokens:
                     logging.warning(f"special token {token} has index {index}, which is larger than {num_tokens}, which is possible for T5 though. See https://github.com/huggingface/transformers/issues/4875")
                 indexes = _tokenizer.convert_tokens_to_ids(_tokenizer.tokenize(token[2:-2]))
-                embed = model.encoder.embed_tokens.weight.data[indexes[0]]
+                embed = enc.embed_tokens.weight.data[indexes[0]]
                 for i in indexes[1:]:
                     embed += model.decoder.embed_tokens.weight.data[i]
                 embed /= len(indexes)
                 model.decoder.embed_tokens.weight.data[index] = __normalize(embed)
-
-        if use_prompt:
-            encoder = PromptFT5Encoder(encoder)
-        else:
-            encoder = FT5Encoder(encoder)
         if decoder_type is None:
             decoder = FT5Decoder(decoder, pad_token_id=tokenizer.pad_token_id, label_ids=label_ids, use_encoder_mlp=use_encoder_mlp)
         else:
