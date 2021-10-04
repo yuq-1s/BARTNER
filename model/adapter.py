@@ -146,7 +146,11 @@ class AdapterModel(nn.Module):
                 self.adapter_layernorm = self.adapter_layernorm.to(device)
 
     def forward(self, *args, **kwargs):
-        output = self.model(*args, **kwargs)
+        try:
+            output = self.model(*args, **kwargs)
+        except RuntimeError as e:
+            print(e)
+            import pdb; pdb.set_trace()
         x = output[0] if type(output) is tuple else output
         x = x + self.adapter(x)
         if self.need_norm:

@@ -39,24 +39,24 @@ args.save_model = 1
 args.target_type = 'word'
 # args.bart_name = 'facebook/bart-base'
 # args.bart_name = 't5-large'
-args.bart_name = 't5-3b'
+args.bart_name = 't5-large'
 args.schedule = 'linear'
 args.decoder_type = None # 'avg_feature'
 args.n_epochs = 300
 args.num_beams = 1
-args.num_prompt_tokens = 32
+args.num_prompt_tokens = 1
 if args.bart_name == 't5-base':
     args.adapter_size = 192
     args.batch_size = 64
     args.dev_batch_size = 64
 elif args.bart_name == 't5-large':
     args.adapter_size = 192
-    args.batch_size = 8 # 24
-    args.dev_batch_size = 8 # 24
+    args.batch_size = 16
+    args.dev_batch_size = 8
 elif args.bart_name == 't5-3b':
     args.adapter_size = 192*4
-    args.batch_size = 8 # 16
-    args.dev_batch_size = 8 # 16
+    args.batch_size = 4 # 16
+    args.dev_batch_size = 4 # 16
 elif args.bart_name == 't5-11b':
     args.adapter_size = 192*4
     args.batch_size = 6
@@ -66,7 +66,7 @@ args.lr = 2e-4
 args.warmup_ratio = 0.01
 args.mode = 'prompt'
 args.do_train = True
-args.checkpoint_path = None # 'ckpts/t5-large_adapter_0.001_crossattn_adapter_truncate_decoded/latest_SequenceGeneratorModel_f_2021-07-23-13-43-26-824845'
+args.checkpoint_path = None # 'ckpts/9_t5-large_adapter+prompt_0.0002_192_adapter_prompt_32/best_SequenceGeneratorModel_f_2021-09-14-16-41-23-477348' #  None # 'ckpts/t5-large_adapter_0.001_crossattn_adapter_truncate_decoded/latest_SequenceGeneratorModel_f_2021-07-23-13-43-26-824845'
 eval_start_epoch = 0
 
 # the following hyper-parameters are for target_type=word
@@ -311,7 +311,7 @@ if dataset_name == 'conll2003':
     # ds.concat(data_bundle.get_dataset('dev'))
     data_bundle.delete_dataset('dev')
 if save_model == 1:
-    save_path = f'ckpts/9_{args.bart_name}_{args.mode}_{args.lr}_{args.adapter_size}_adapter_prompt/'
+    save_path = f'ckpts/9_{args.bart_name}_{args.mode}_{args.lr}_{args.adapter_size}_{args.num_prompt_tokens}_no_decoder_prompt/'
 else:
     save_path = None
 

@@ -84,26 +84,27 @@ class DummyFT5Decoder(Seq2SeqDecoder):
         super().__init__()
         # FIXME: variable name t5_encoder is for compatibility, change it later.
         self.t5_encoder = decoder
+        self.embed_tokens = self.t5_encoder.embed_tokens
 
     def forward(self, *args, **kwargs):
         return self.t5_encoder(*args, **kwargs)
 
 class PromptFT5Encoder(Seq2SeqEncoder):
-    def __init__(self, encoder, n):
+    def __init__(self, encoder, n, first_extra_token_idx=10):
         super().__init__()
-        assert n <= 100, "T5 extract tokens must <= 100"
+        assert n + first_extra_token_idx <= 100, "T5 extract tokens must <= 100"
         self.n = n
         # assert isinstance(encoder, T5Stack)
         self.t5_encoder = encoder
         original_embed = encoder.embed_tokens.weight
         self.soft_prompt_embed = nn.Embedding(n, original_embed.size(1))
-        self.soft_prompt_embed.weight.data = encoder.embed_tokens.weight[32127:32127+n].clone().detach().to(original_embed.device)
+        self.soft_prompt_embed.weight.data = encoder.embed_tokens.weight[32000+first_extra_token_idx:32000+first_extra_token_idx+n].clone().detach().to(original_embed.device)
         self.soft_prompt_embed.requires_grad_(True)
         # self.register_buffer('soft_prompt_embed', soft_prompt_embed)
 
     def forward(self, src_tokens, src_seq_len):
         embeddings = self.t5_encoder.embed_tokens(src_tokens)
-        prompt_embeddings = self.soft_prompt_embed.weight.repeat((src_tokens.size(0), self.n, 1))
+        prompt_embeddings = self.soft_prompt_embed.weight.repeat((src_tokens.size(0), 1, 1))
         embeddings = torch.cat([prompt_embeddings, embeddings], dim=1)
         mask = seq_len_to_mask(src_seq_len+self.n, max_len=embeddings.size(1))
         dict = self.t5_encoder(inputs_embeds=embeddings, attention_mask=mask, return_dict=True,
@@ -119,10 +120,14 @@ class PromptFT5Decoder(PromptFT5Encoder):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.embed_tokens = self.t5_encoder.embed_tokens
+        self.decoder_soft_prompt_embed = nn.Embedding(self.n, self.embed_tokens.weight.data.size(1))
+        self.decoder_soft_prompt_embed.weight.data = self.soft_prompt_embed.weight.data.clone().detach().to(self.embed_tokens.weight.data.device)
+        self.decoder_soft_prompt_embed.weight.data += torch.randn_like(self.decoder_soft_prompt_embed.weight.data)
+        self.decoder_soft_prompt_embed.requires_grad_(True)
 
     def forward(self, input_ids, *args, **kwargs):
         embeddings = self.t5_encoder.embed_tokens(input_ids)
-        prompt_embeddings = self.soft_prompt_embed.weight.repeat((input_ids.size(0), self.n, 1))
+        prompt_embeddings = self.decoder_soft_prompt_embed.weight.repeat((input_ids.size(0), 1, 1))
         embeddings = torch.cat([prompt_embeddings, embeddings], dim=1)
         # FIXME: Need this line?
         # mask = seq_len_to_mask(src_seq_len+self.n, max_len=embeddings.size(1))
@@ -287,13 +292,14 @@ class T5Seq2SeqModel(Seq2SeqModel):
     def build_model(cls, bart_model, tokenizer, label_ids, decoder_type=None,
                     use_encoder_mlp=False, num_prompt_tokens=False, checkpoint_path=None,
                     model_parallel=False, use_adapter=False, adapter_size=-1):
-        model = T5Model.from_pretrained(bart_model, mirror='tuna')
+        model = T5Model.from_pretrained(bart_model)
         if model_parallel:
             model.parallelize()
 
         if num_prompt_tokens > 0:
             encoder = PromptFT5Encoder(model.encoder, n=num_prompt_tokens)
-            decoder = PromptFT5Decoder(model.decoder, n=num_prompt_tokens)
+            # decoder = PromptFT5Decoder(model.decoder, n=num_prompt_tokens)
+            decoder = DummyFT5Decoder(model.decoder)
         else:
             encoder = FT5Encoder(model.encoder)
             decoder = DummyFT5Decoder(model.decoder)
@@ -312,7 +318,7 @@ class T5Seq2SeqModel(Seq2SeqModel):
 
         __normalize = lambda x: (x - x.mean()) / x.std() * 0.4356 - 0.0094
 
-        _tokenizer = T5Tokenizer.from_pretrained(bart_model, mirror='https://mirrors.tuna.tsinghua.edu.cn/hugging-face-models', local_files_only=True)
+        _tokenizer = T5Tokenizer.from_pretrained(bart_model, local_files_only=True)
         for token in tokenizer.unique_no_split_tokens:
             if token[:2] == '<<':  # 特殊字符
                 index = tokenizer.convert_tokens_to_ids(tokenizer.tokenize(token))
